@@ -1,6 +1,6 @@
-# NVIDIA DOCA Sample Applications
+# NVIDIA DOCA Reference Applications & Samples
 ![DOCA software Stack](doca-software.jpg "DOCA Software Stack")
-DOCA applications are an educational resource provided as a guide on how to program on the NVIDIA BlueField networking platform using DOCA API.
+DOCA reference applications and samples are an educational resource provided as a guide on how to program on the NVIDIA BlueField networking platform using DOCA API.
 
 For instructions regarding the development environment and installation, refer to the [NVIDIA DOCA Developer Guide](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Developer+Guide) and the [NVIDIA DOCA Installation Guide for Linux](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Installation+Guide+for+Linux) respectively.
 
@@ -54,9 +54,9 @@ Note
 
 
 ## Developer Configurations
-When recompiling the applications, meson compiles them by default in "debug" mode. Therefore, the binaries would not be optimized for performance as they would include the debug symbol. For comparison, the application binaries shipped as part of DOCA's installation are compiled in "release" mode. To compile the applications in something other than debug, please consult Meson's configuration guide.
+When recompiling the reference applications, meson compiles them by default in "debug" mode. Therefore, the binaries would not be optimized for performance as they would include the debug symbol. For comparison, the application binaries shipped as part of DOCA's installation are compiled in "release" mode. To compile the applications in something other than debug, please consult Meson's configuration guide.
 
-The applications also offer developers the ability to use the DOCA log's TRACE level (DOCA_LOG_TRC) on top of the existing DOCA log levels. Enabling the TRACE log level during compilation activates various developer log messages left out of the release compilation. Activating the TRACE log level may be done through enable_trace_log in the meson_options.txt file, or directly from the command line:
+The reference applications also offer developers the ability to use the DOCA log's TRACE level (DOCA_LOG_TRC) on top of the existing DOCA log levels. Enabling the TRACE log level during compilation activates various developer log messages left out of the release compilation. Activating the TRACE log level may be done through enable_trace_log in the meson_options.txt file, or directly from the command line:
 
 Prepare the compilation definitions to use the trace log level:
 
@@ -69,9 +69,9 @@ Compile the applications:
 
 
 
-## Applications
+## Reference Applications
 
-Applications are located in the `applications` directory. Documentation can be found on the [DOCA SDK Applications Page](https://docs.nvidia.com/doca/sdk/index.html#applications)
+Reference applications are located in the `applications` directory. Documentation can be found on the [DOCA SDK Applications Page](https://docs.nvidia.com/doca/sdk/index.html#applications)
 
 * `app_shield_agent` - [The DOCA App Shield Agent application](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+App+Shield+Agent+Application+Guide) describes how to build secure process monitoring and is based on the DOCA APSH library, which leverages DPU capabilities such as regular expression (RXP) acceleration engine, hardware-based DMA, and more.
 * `dma_copy` - [The DOCA DMA Copy application](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+DMA+Copy+Application+Guide) describes how to transfer files between the DPU and the host. The application is based on the direct memory access (DMA) library, which leverages hardware acceleration for data copy for both local and remote memory.
@@ -89,27 +89,4 @@ Applications are located in the `applications` directory. Documentation can be f
 * `simple_fwd_vnf` - [The DOCA Simple Forward VNF application](https://docs.nvidia.com/doca/sdk/doca+applications/index.html#src-2827901294_id-.DOCAApplicationsv2.8.0-SimpleForwardVNF) is a forwarding application that takes VXLAN traffic from a single RX port and transmits it on a single TX port. It is based on the DOCA Flow library which leverages DPU capabilities such as building generic execution pipes in the hardware, and more.
 * `storage` -
 * `switch` - [The DOCA Switch application](https://docs.nvidia.com/doca/sdk/doca+applications/index.html#src-2827901294_id-.DOCAApplicationsv2.8.0-Switch) is used to establish internal switching between representor ports on the DPU. It is based on the DOCA Flow library which leverages DPU capabilities such as building generic execution pipes in the hardware, and more.
-* `urom_rdmo` -
-
-## Samples
-
-Commonly used code samples for DOCA libraries are located in the `samples` directory. 
-
-* `doca_aes_gcm` - DOCA
-* `doca_apsh` - DOCA App Shield is a library for monitoring the host and authenticating the integrity of core processes.
-* `doca_comch` - DOCA Comm Channel is a secure, network independent communication channel between the host and the BlueField DPU.
-* `doca_common` - DOCA
-* `doca_compress` - DOCA
-* `doca_devemu` - DOCA
-* `doca_dma` - DOCA direct memory access (DMA) library provides an API for copying data between buffers using hardware acceleration, supporting both local and remote memory regions.
-* `doca_dpa` - DOCA
-* `doca_erasure_coding` - DOCA
-* `doca_eth` - DOCA
-* `doca_flow` - DOCA Flow is the most fundamental API for building generic execution pipes in HW.
-* `doca_gpunetio` - DOCA
-* `doca_rdma` - DOCA
-* `doca_rmax` - DOCA
-* `doca_sha` - DOCA
-* `doca_telemetry` - DOCA Telemetry API offers a fast and convenient way to transfer user-defined data to DOCA Telemetry Service (DTS). In addition, the API provides several built-in outputs for user convenience, including saving data directly to storage, NetFlow, Fluent Bit forwarding, and Prometheus endpoint.
-* `doca_telemetry_exporter` - DOCA
-* `doca_urom` - DOCA
+* `urom_rdmo` - 
