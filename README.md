@@ -1,4 +1,4 @@
-# NVIDIA DOCA Reference Applications & Samples
+# NVIDIA DOCA Reference Applications
 ![DOCA software Stack](doca-software.jpg "DOCA Software Stack")
 DOCA reference applications and samples are an educational resource provided as a guide on how to program on the NVIDIA BlueField networking platform using DOCA API.
 
