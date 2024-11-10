@@ -1,12 +1,15 @@
 # NVIDIA DOCA Samples
 ![DOCA software Stack](doca-software.jpg "DOCA Software Stack")
 
-the DOCA samples repository is an educational resource provided as a guide on how to program on the NVIDIA BlueField networking platform using DOCA API.
-the repository is composed by:
-* Samples:  simplistic code snippets that demonstrate the API usage 
-* Applications: Advanced samples that implements a logic that might cross different SDK libs.
+##  Purpose
 
-DOCA reference applications and samples are 
+The DOCA samples repository is an educational resource provided as a guide on how to program on the NVIDIA BlueField networking platform using DOCA API.
+
+The repository consist of 2 parts:
+* [Samples](https://github.com/NVIDIA-DOCA/doca-samples-demo/tree/main/samples):  simplistic code snippets that demonstrate the API usage 
+* [Applications](https://github.com/NVIDIA-DOCA/doca-samples-demo/tree/main/applications): Advanced samples that implements a logic that might cross different SDK libs.
+
+
 
 For instructions regarding the development environment and installation, refer to the [NVIDIA DOCA Developer Guide](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Developer+Guide) and the [NVIDIA DOCA Installation Guide for Linux](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Installation+Guide+for+Linux) respectively.
 
