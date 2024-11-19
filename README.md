@@ -10,12 +10,7 @@ The repository consist of 2 parts:
 * [Applications](https://github.com/NVIDIA-DOCA/doca-samples-demo/tree/main/applications): Advanced samples that implements a logic that might cross different SDK libs.
 
 
-
 For instructions regarding the development environment and installation, refer to the [NVIDIA DOCA Developer Guide](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Developer+Guide) and the [NVIDIA DOCA Installation Guide for Linux](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Installation+Guide+for+Linux) respectively.
-
-##  Installation
-
-DOCA applications are installed under /opt/mellanox/doca/applications with each application having its own dedicated folder. Each directory contains the source code and compilation files for the matching application.
 
 
 ##  Prerequisites
@@ -24,18 +19,23 @@ The DOCA SDK references (samples and applications) require the use of [meson](ht
 
     sudo pip3 install meson==0.61.2
 
+##  Installation
+
+DOCA reference implementations are split into reference samples and reference applications.
+    Reference Samples
+        - Offer an easy to follow functionality example for a single feature, using a single DOCA SDK library
+        - Samples are meant to be used by developers as references when going over the programming guides of the respective libraries
+        - Accordingly, the directory structure is: samples/<DOCA SDK library name>/<sample name>/sources
+        - Each sample is its own meson project, and is independent from the rest
+    Reference Applications
+        - More mature examples of DOCA-based programs, often based on multiple DOCA SDK libraries at once
+        - The reference applications use some common code from the samples, and aim to provide a real-life example of using the DOCA SDK
+        - Accordingly, the directory structure is applications/<application name>/sources
+        - All reference applications are part of the same meson project, and are compiled together
 
 ## Compilation
 
-As applications are shipped alongside their sources, developers may want to modify some of the code during their development process and then recompile the applications. The files required for the compilation are the following:
-
-    /opt/mellanox/doca/applications/meson.build – main compilation file for a project that contains all the applications
-    
-    /opt/mellanox/doca/applications/meson_options.txt – configuration file for the compilation process
-    
-    /opt/mellanox/doca/applications/<application_name>/meson.build – application-specific compilation definitions
-
-To recompile all the reference applications:
+To compile all the reference applications:
 
 Move to the applications directory:
 

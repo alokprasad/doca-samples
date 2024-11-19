@@ -25,7 +25,7 @@
 project('DOCA_SAMPLE', 'C', 'CPP', 'CUDA',
 	# Get version number from file.
 	version: run_command(find_program('cat'),
-		files('/opt/mellanox/doca/applications/VERSION'), check: true).stdout().strip(),
+		files('../../../VERSION'), check: true).stdout().strip(),
 	license: 'Proprietary',
 	default_options: ['buildtype=release'],
 	meson_version: '>= 0.61.2'
