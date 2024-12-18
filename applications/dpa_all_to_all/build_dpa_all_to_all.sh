@@ -28,9 +28,11 @@ set -e
 
 # This script uses the mpicc (MPI C compiler) to compile the dpa_all_to_all application
 # This script takes 3 arguments:
-# arg1: The project's build path
-# arg2: Address sanitizer option
-# arg3: Buildtype
+# arg1: The project's source path
+# arg2: The project's build path
+# arg3: Address sanitizer option
+# arg4: Buildtype
+# arg5: DPA target device (HW target)
 
 ####################
 ## Configurations ##
@@ -41,12 +43,12 @@ MPI_COMPILER="mpicc"
 
 # DOCA Configurations
 DOCA_DIR="/opt/mellanox/doca"
-DOCA_BUILD_DIR=$1
-ADDRESS_SANITIZER_OPTION=$2
-BUILD_TYPE=$3
-DPA_TARGET_DEVICE=$4
+ALL_TO_ALL_DIR=$1
+DOCA_BUILD_DIR=$2
+ADDRESS_SANITIZER_OPTION=$3
+BUILD_TYPE=$4
+DPA_TARGET_DEVICE=$5
 DOCA_INCLUDE="${DOCA_DIR}/include"
-ALL_TO_ALL_DIR="${DOCA_DIR}/applications/$APP_NAME"
 ALL_TO_ALL_HOST_DIR="${ALL_TO_ALL_DIR}/host"
 ALL_TO_ALL_HOST_SRC_FILES="${ALL_TO_ALL_HOST_DIR}/${APP_NAME}.c ${ALL_TO_ALL_HOST_DIR}/${APP_NAME}_core.c"
 ALL_TO_ALL_DEVICE_SRC_DIR="${ALL_TO_ALL_DIR}/device"
