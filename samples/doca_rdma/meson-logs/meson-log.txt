@@ -1,0 +1,175 @@
+Build started at 2024-12-17T17:17:28.565741
+Main binary: /usr/bin/python3
+Build Options: 
+Python system: Linux
+The Meson build system
+Version: 0.61.2
+Source dir: /github/doca-samples-demo/samples/doca_rdma/rdma_send
+Build dir: /github/doca-samples-demo/samples/doca_rdma
+Build type: native build
+Program cat found: YES (/usr/bin/cat)
+Running command: /usr/bin/cat /github/doca-samples-demo/samples/doca_rdma/rdma_send/../../../VERSION
+--- stdout ---
+2.9.0072
+
+--- stderr ---
+
+
+Project name: DOCA_SAMPLE
+Project version: 2.9.0072
+Sanity testing C compiler: cc
+Is cross compiler: False.
+Sanity check compiler command line: cc sanitycheckc.c -o sanitycheckc.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command: /github/doca-samples-demo/samples/doca_rdma/meson-private/sanitycheckc.exe
+C compiler for the host machine: cc (gcc 11.4.0 "cc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0")
+C linker for the host machine: cc ld.bfd 2.38
+Sanity testing C++ compiler: c++
+Is cross compiler: False.
+Sanity check compiler command line: c++ sanitycheckcpp.cc -o sanitycheckcpp.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command: /github/doca-samples-demo/samples/doca_rdma/meson-private/sanitycheckcpp.exe
+C++ compiler for the host machine: c++ (gcc 11.4.0 "c++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0")
+C++ linker for the host machine: c++ ld.bfd 2.38
+Sanity testing C compiler: cc
+Is cross compiler: False.
+Sanity check compiler command line: cc sanitycheckc.c -o sanitycheckc.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command: /github/doca-samples-demo/samples/doca_rdma/meson-private/sanitycheckc.exe
+C compiler for the build machine: cc (gcc 11.4.0 "cc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0")
+C linker for the build machine: cc ld.bfd 2.38
+Sanity testing C++ compiler: c++
+Is cross compiler: False.
+Sanity check compiler command line: c++ sanitycheckcpp.cc -o sanitycheckcpp.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command: /github/doca-samples-demo/samples/doca_rdma/meson-private/sanitycheckcpp.exe
+C++ compiler for the build machine: c++ (gcc 11.4.0 "c++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0")
+C++ linker for the build machine: c++ ld.bfd 2.38
+Build machine cpu family: aarch64
+Build machine cpu: aarch64
+Host machine cpu family: aarch64
+Host machine cpu: aarch64
+Target machine cpu family: aarch64
+Target machine cpu: aarch64
+Pkg-config binary for 1 is not cached.
+Pkg-config binary missing from cross or native file, or env var undefined.
+Trying a default Pkg-config fallback at pkg-config
+Found pkg-config: /usr/bin/pkg-config (0.29.2)
+Determining dependency 'doca-common' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --modversion doca-common` -> 0
+2.9.0072
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --cflags doca-common` -> 0
+-DALLOW_EXPERIMENTAL_API -I/opt/mellanox/doca/include -I/usr/include/libnl3 -I/opt/mellanox/doca/include
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+Called `/usr/bin/pkg-config --libs doca-common` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_common
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --libs doca-common` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_common
+Running compile:
+Working directory:  /github/doca-samples-demo/samples/doca_rdma/meson-private/tmppko6uq8g
+Command line:  c++ /github/doca-samples-demo/samples/doca_rdma/meson-private/tmppko6uq8g/testfile.cpp -o /github/doca-samples-demo/samples/doca_rdma/meson-private/tmppko6uq8g/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive 
+
+Code:
+ #include<stdio.h>
+        
+        int main(void) {
+            printf("%ld\n", (long)(sizeof(void *)));
+            return 0;
+        }
+Compiler stdout:
+ 
+Compiler stderr:
+ 
+Program stdout:
+
+8
+
+Program stderr:
+
+
+Running compile:
+Working directory:  /github/doca-samples-demo/samples/doca_rdma/meson-private/tmpegz044ng
+Command line:  c++ /github/doca-samples-demo/samples/doca_rdma/meson-private/tmpegz044ng/testfile.cpp -o /github/doca-samples-demo/samples/doca_rdma/meson-private/tmpegz044ng/output.obj -c -D_FILE_OFFSET_BITS=64 -O0 -fpermissive --print-search-dirs 
+
+Code:
+ 
+Compiler stdout:
+ install: /usr/lib/gcc/aarch64-linux-gnu/11/
+programs: =/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/
+libraries: =/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/../lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../lib/:/lib/aarch64-linux-gnu/11/:/lib/aarch64-linux-gnu/:/lib/../lib/:/usr/lib/aarch64-linux-gnu/11/:/usr/lib/aarch64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../:/lib/:/usr/lib/
+
+Compiler stderr:
+ 
+Run-time dependency doca-common found: YES 2.9.0072
+Pkg-config binary for 1 is cached.
+Determining dependency 'doca-rdma' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --modversion doca-rdma` -> 0
+2.9.0072
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --cflags doca-rdma` -> 0
+-DALLOW_EXPERIMENTAL_API -I/opt/mellanox/doca/include -I/usr/include/libnl3 -I/opt/mellanox/doca/include
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+Called `/usr/bin/pkg-config --libs doca-rdma` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_rdma
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --libs doca-rdma` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_rdma
+Run-time dependency doca-rdma found: YES 2.9.0072
+Pkg-config binary for 1 is cached.
+Determining dependency 'doca-argp' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --modversion doca-argp` -> 0
+2.9.0072
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --cflags doca-argp` -> 0
+-DALLOW_EXPERIMENTAL_API -I/opt/mellanox/doca/include -I/usr/include/libnl3 -I/opt/mellanox/doca/include
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+Called `/usr/bin/pkg-config --libs doca-argp` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_argp
+env[PKG_CONFIG_PATH]: /opt/mellanox/collectx/lib/aarch64-linux-gnu/pkgconfig:/opt/mellanox/flexio/lib/pkgconfig:/opt/mellanox/dpdk/lib/aarch64-linux-gnu/pkgconfig
+Called `/usr/bin/pkg-config --libs doca-argp` -> 0
+-L/opt/mellanox/doca/lib/aarch64-linux-gnu -ldoca_argp
+Run-time dependency doca-argp found: YES 2.9.0072
+Build targets in project: 1
+
+Found ninja-1.10.2 at /usr/bin/ninja
+Running compile:
+Working directory:  /github/doca-samples-demo/samples/doca_rdma/meson-private/tmp894nwe2u
+Command line:  cc /github/doca-samples-demo/samples/doca_rdma/meson-private/tmp894nwe2u/testfile.c -o /github/doca-samples-demo/samples/doca_rdma/meson-private/tmp894nwe2u/output.obj -c -D_FILE_OFFSET_BITS=64 -O0 --print-search-dirs 
+
+Code:
+ 
+Compiler stdout:
+ install: /usr/lib/gcc/aarch64-linux-gnu/11/
+programs: =/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/bin/
+libraries: =/usr/lib/gcc/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/../lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../aarch64-linux-gnu/11/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../aarch64-linux-gnu/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../lib/:/lib/aarch64-linux-gnu/11/:/lib/aarch64-linux-gnu/:/lib/../lib/:/usr/lib/aarch64-linux-gnu/11/:/usr/lib/aarch64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../../aarch64-linux-gnu/lib/:/usr/lib/gcc/aarch64-linux-gnu/11/../../../:/lib/:/usr/lib/
+
+Compiler stderr:
+ 
