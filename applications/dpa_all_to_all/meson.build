@@ -52,7 +52,7 @@ endif
 
 build_script = meson.current_source_dir() / 'build_dpa_all_to_all.sh'
 app_builds = find_program(build_script)
-command = [app_builds, meson.project_build_root(), address_sanitizer, debug_mode, default_dpa_target_device]
+command = [app_builds, meson.current_source_dir(), meson.project_build_root(), address_sanitizer, debug_mode, default_dpa_target_device]
 
 custom_target(DOCA_PREFIX + APP_NAME,
 		command: command,
