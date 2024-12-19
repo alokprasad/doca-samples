@@ -23,17 +23,25 @@ The DOCA SDK references (samples and applications) require the use of [meson](ht
 
 DOCA reference implementations are split into reference samples and reference applications.
 
-    Reference Samples
-        - Offer an easy to follow functionality example for a single feature, using a single DOCA SDK library
-        - Samples are meant to be used by developers as references when going over the programming guides of the respective libraries
-        - Accordingly, the directory structure is: samples/<DOCA SDK library name>/<sample name>/sources
-        - Each sample is its own meson project, and is independent from the rest
-        
-    Reference Applications
-        - More mature examples of DOCA-based programs, often based on multiple DOCA SDK libraries at once
-        - The reference applications use some common code from the samples, and aim to provide a real-life example of using the DOCA SDK
-        - Accordingly, the directory structure is applications/<application name>/sources
-        - All reference applications are part of the same meson project, and are compiled together
+Reference Samples
+
+- Offer an easy to follow functionality example for a single feature, using a single DOCA SDK library
+
+- Samples are meant to be used by developers as references when going over the programming guides of the respective libraries
+
+- Accordingly, the directory structure is: samples/<DOCA SDK library name>/<sample name>/sources
+
+- Each sample is its own meson project, and is independent from the rest
+    
+Reference Applications
+
+- More mature examples of DOCA-based programs, often based on multiple DOCA SDK libraries at once
+
+- The reference applications use some common code from the samples, and aim to provide a real-life example of using the DOCA SDK
+
+- Accordingly, the directory structure is applications/<application name>/sources
+
+- All reference applications are part of the same meson project, and are compiled together
 
 ## Compilation
 
@@ -56,13 +64,26 @@ Info
     The generated applications are located under the /tmp/build/ directory, using the following path /tmp/build/<application_name>/doca_<application_name>.
 
 Note
-    Compilation against DOCA's SDK relies on environment variables which are automatically defined per user session upon login. For more information, please refer to section "Meson Complains About Missing Dependencies" in the [NVIDIA DOCA Troubleshooting Guide](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Troubleshooting+Guide#src-2957507292_id-.NVIDIADOCATroubleshootingGuidev2.8.0-FailuretoSetHugePages).
+
+Compilation against DOCA's SDK relies on environment variables which are automatically defined per user session upon login. 
+
+For more information, please refer to section "Meson Complains About Missing Dependencies" in the [NVIDIA DOCA Troubleshooting Guide](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Troubleshooting+Guide#src-2957507292_id-.NVIDIADOCATroubleshootingGuidev2.8.0-FailuretoSetHugePages).
 
 
 ## Developer Configurations
-When recompiling the reference applications, meson compiles them by default in "debug" mode. Therefore, the binaries would not be optimized for performance as they would include the debug symbol. For comparison, the programs binaries shipped as part of DOCA's installation are compiled in "release" mode. To compile the applications in something other than debug, please consult Meson's configuration guide.
+When recompiling the reference applications, meson compiles them by default in "debug" mode.
 
-The reference applications also offer developers the ability to use the DOCA log's TRACE level (DOCA_LOG_TRC) on top of the existing DOCA log levels. Enabling the TRACE log level during compilation activates various developer log messages left out of the release compilation. Activating the TRACE log level may be done through enable_trace_log in the meson_options.txt file, or directly from the command line:
+Therefore, the binaries would not be optimized for performance as they would include the debug symbol.
+
+For comparison, the programs binaries shipped as part of DOCA's installation are compiled in "release" mode.
+
+To compile the applications in something other than debug, please consult Meson's configuration guide.
+
+The reference applications also offer developers the ability to use the DOCA log's TRACE level (DOCA_LOG_TRC) on top of the existing DOCA log levels.
+
+Enabling the TRACE log level during compilation activates various developer log messages left out of the release compilation.
+
+Activating the TRACE log level may be done through enable_trace_log in the meson_options.txt file, or directly from the command line:
 
 [Meson configuration guide](https://mesonbuild.com/)
 
