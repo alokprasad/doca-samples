@@ -22,7 +22,9 @@ The DOCA SDK references (samples and applications) require the use of [meson](ht
 ##  Installation
 
 DOCA reference implementations are split into reference samples and reference applications.
+
     Reference Samples
+    
         - Offer an easy to follow functionality example for a single feature, using a single DOCA SDK library
         - Samples are meant to be used by developers as references when going over the programming guides of the respective libraries
         - Accordingly, the directory structure is: samples/<DOCA SDK library name>/<sample name>/sources
