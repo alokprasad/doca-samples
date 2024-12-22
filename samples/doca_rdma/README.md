@@ -1,4 +1,4 @@
-# Samples
+# DOCA RDMA
 
 Each sample presents a connection between two peers, transferring data from one to another, using a different RDMA operation in each sample. For more information on the available RDMA operations, refer to section  ["Tasks"](https://docs.nvidia.com/doca/archive/2-9-0/doca+rdma/index.html#src-3113769286_id-.DOCARDMAv2.9.0LTS-Tasks).
 
