@@ -1,4 +1,4 @@
-# DMA Copy DPU
+# DMA Copy Host
 
 **Note**: This sample should be run first. It is user responsibility to transfer the two configuration files (descriptor and buffer) to the DPU and provide their path to the DMA Copy DPU sample.
 
