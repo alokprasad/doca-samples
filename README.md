@@ -14,8 +14,12 @@ For instructions regarding the development environment and installation, refer t
 
 ##  Prerequisites
 
-Install DOCA Software Package
+Install DOCA Software Package:
+
 A detailed step-by-step process for downloading and installing the required development software on both the host and BlueField can be found in the [NVIDIA DOCA Installation Guide for Linux](https://docs.nvidia.com/doca/sdk/NVIDIA+DOCA+Installation+Guide+for+Linux).
+
+note: Use doca-all profile, This profile is the super-set of components, which also includes the content of doca-ofed and doca-networking.
+
 
 ##  Installation
 
