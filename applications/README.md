@@ -1,4 +1,8 @@
-# [Applications](https://docs.nvidia.com/doca/archive/2-9-0/doca+reference+applications/index.html#src-3095356375_id-.DOCAReferenceApplicationsv2.9.0LTS-Applications)
+# [DOCA Reference Applications](https://docs.nvidia.com/doca/archive/2-9-0/doca+reference+applications/index.html#src-3095356375_id-.DOCAReferenceApplicationsv2.9.0LTS-Applications)
+
+This page provides an overview of the DOCA reference applications implemented on top of NVIDIA® BlueField®.
+
+All of the DOCA reference applications described in this section are governed under the BSD-3 software license agreement.
 
 ## [App Shield Agent](https://docs.nvidia.com/doca/archive/2-9-0/doca+reference+applications/index.html#src-3095356375_id-.DOCAReferenceApplicationsv2.9.0LTS-AppShieldAgent)
 The [DOCA App Shield Agent](https://docs.nvidia.com/doca/archive/2-9-0/NVIDIA+DOCA+DPA+All-to-all+Application+Guide) reference application describes how to build secure process monitoring and is based on the DOCA APSH library, which leverages DPU capabilities such as regular expression (RXP) acceleration engine, hardware-based DMA, and more.
