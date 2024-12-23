@@ -19,7 +19,7 @@ Refer to the following documents:
 To build a given sample:
 
 ```sh
-cd /opt/mellanox/doca/samples/doca_flow/flow_ct_udp
+cd doca_flow/flow_ct_udp
 meson /tmp/build
 ninja -C /tmp/build
 ```
@@ -102,9 +102,9 @@ sudo devlink dev param set pci/<pcie-address0> name esw_multiport value false cm
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/flow_ct_2_ports_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/flow_ct_2_ports_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/meson.build`
+- `doca_flow/flow_ct_udp/flow_ct_2_ports_sample.c`
+- `doca_flow/flow_ct_udp/flow_ct_2_ports_main.c`
+- `doca_flow/flow_ct_udp/meson.build`
 
 ### Flow CT UDP
 
@@ -135,9 +135,9 @@ This sample illustrates how to create a simple UDP pipeline with a CT pipe in it
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/flow_ct_udp_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/flow_ct_udp_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp/meson.build`
+- `doca_flow/flow_ct_udp/flow_ct_udp_sample.c`
+- `doca_flow/flow_ct_udp/flow_ct_udp_main.c`
+- `doca_flow/flow_ct_udp/meson.build`
 
 ### Flow CT UDP Query
 
@@ -154,9 +154,9 @@ This sample illustrates how to query a Flow CT UDP session entry. The query can 
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_query/flow_ct_udp_query_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_query/flow_ct_udp_query_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_query/meson.build`
+- `doca_flow/flow_ct_udp_query/flow_ct_udp_query_sample.c`
+- `doca_flow/flow_ct_udp_query/flow_ct_udp_query_main.c`
+- `doca_flow/flow_ct_udp_query/meson.build`
 
 ### Flow CT UDP Update
 
@@ -172,9 +172,9 @@ The pipeline is identical to that of the Flow CT UDP sample. In case of non-acti
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_update/flow_ct_udp_update_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_update/flow_ct_udp_update_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_udp_update/meson.build`
+- `doca_flow/flow_ct_udp_update/flow_ct_udp_update_sample.c`
+- `doca_flow/flow_ct_udp_update/flow_ct_udp_update_main.c`
+- `doca_flow/flow_ct_udp_update/meson.build`
 
 ### Flow CT UDP Single Match
 
@@ -202,9 +202,9 @@ No packets need to be sent for this sample.
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_aging/flow_ct_aging_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_aging/flow_ct_aging_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_aging/meson.build`
+- `doca_flow/flow_ct_aging/flow_ct_aging_sample.c`
+- `doca_flow/flow_ct_aging/flow_ct_aging_main.c`
+- `doca_flow/flow_ct_aging/meson.build`
 
 ### Flow CT TCP
 
@@ -240,9 +240,9 @@ This sample illustrates how to manage TCP flags with CT to achieve better contro
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/flow_ct_tcp_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/flow_ct_tcp_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/meson.build`
+- `doca_flow/flow_ct_tcp/flow_ct_tcp_sample.c`
+- `doca_flow/flow_ct_tcp/flow_ct_tcp_main.c`
+- `doca_flow/flow_ct_tcp/meson.build`
 
 ### Flow CT TCP Actions
 
@@ -254,9 +254,9 @@ This sample adds a shared action on one side of the session that placed the valu
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_actions/flow_ct_tcp_actions_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_actions/flow_ct_tcp_actions_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_actions/meson.build`
+- `doca_flow/flow_ct_tcp_actions/flow_ct_tcp_actions_sample.c`
+- `doca_flow/flow_ct_tcp_actions/flow_ct_tcp_actions_main.c`
+- `doca_flow/flow_ct_tcp_actions/meson.build`
 
 ### Flow CT TCP Flow Log
 
@@ -268,9 +268,9 @@ This sample is based on the Flow CT TCP sample. Once a session is removed (after
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_flow_log/flow_ct_tcp_flow_log_sample.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_flow_log/flow_ct_tcp_flow_log_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp_flow_log/meson.build`
+- `doca_flow/flow_ct_tcp_flow_log/flow_ct_tcp_flow_log_sample.c`
+- `doca_flow/flow_ct_tcp_flow_log/flow_ct_tcp_flow_log_main.c`
+- `doca_flow/flow_ct_tcp_flow_log/meson.build`
 
 ### Flow CT TCP IPv4/IPv6
 
@@ -285,6 +285,6 @@ From this point on, all IPv4 TCP packets (belonging to the origin direction) and
 
 **Reference:**
 
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/flow_ct_tcp_sample_ipv4_ipv6.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/flow_ct_tcp_ipv4_ipv6_main.c`
-- `/opt/mellanox/doca/samples/doca_flow/flow_ct_tcp/meson.build`
+- `doca_flow/flow_ct_tcp/flow_ct_tcp_sample_ipv4_ipv6.c`
+- `doca_flow/flow_ct_tcp/flow_ct_tcp_ipv4_ipv6_main.c`
+- `doca_flow/flow_ct_tcp/meson.build`
