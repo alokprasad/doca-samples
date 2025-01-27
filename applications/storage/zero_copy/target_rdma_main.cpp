@@ -187,7 +187,7 @@ int main(int argc, char **argv)
 	try {
 		auto const cfg = parse_cli_args(argc, argv);
 		print_config(cfg);
-		g_app.reset(storage::zero_copy::make_storage_application(cfg));
+		g_app.reset(storage::zero_copy::make_target_rdma_application(cfg));
 		g_app->run();
 		auto const &stats = g_app->get_stats();
 		printf("+================================================+\n");

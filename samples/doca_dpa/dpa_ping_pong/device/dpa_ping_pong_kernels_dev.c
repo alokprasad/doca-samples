@@ -64,6 +64,15 @@ __dpa_global__ void thread_kernel(uint64_t arg)
 					       thread_arg->recv_addr_mmap_handle,
 					       thread_arg->recv_addr,
 					       thread_arg->recv_addr_length);
+
+		/* for the Ping DPA thread:
+		 * the first post send was done at the RPC and therefore we need to update the send addr
+		 * before the next post send in order to send values 0, 1, 2...
+		 */
+		if (tls->is_ping_thread) {
+			(*((uint64_t *)(thread_arg->send_addr)))++;
+		}
+
 		doca_dpa_dev_rdma_post_send(thread_arg->rdma_handle,
 					    0,
 					    thread_arg->send_addr_mmap_handle,
@@ -79,8 +88,8 @@ __dpa_global__ void thread_kernel(uint64_t arg)
 		if (tls->num_receives == EXPECTED_NUM_RECEIVES) {
 			for (uint32_t i = 0; i < EXPECTED_NUM_RECEIVES; i++) {
 				if (received_values[i] != 1) {
-					DOCA_DPA_DEV_LOG_ERR("%s: DPA Thread didn't receive data with value %u\n",
-							     __func__,
+					DOCA_DPA_DEV_LOG_ERR("%s DPA Thread didn't receive data with value %u\n",
+							     (tls->is_ping_thread ? "Ping" : "Pong"),
 							     i);
 					doca_dpa_dev_thread_finish();
 				}
@@ -91,8 +100,13 @@ __dpa_global__ void thread_kernel(uint64_t arg)
 			doca_dpa_dev_thread_finish();
 		}
 
-		/* prepare for next iteration */
-		(*((uint64_t *)(thread_arg->send_addr)))++;
+		/* for the Pong DPA thread:
+		 * the first post send was done at the kernel itself and therefore we need to update the send addr
+		 * after the kernel's post send in order to send values 0, 1, 2...
+		 */
+		if (!tls->is_ping_thread) {
+			(*((uint64_t *)(thread_arg->send_addr)))++;
+		}
 
 		doca_dpa_dev_completion_ack(thread_arg->dpa_comp_handle, 1);
 	}
@@ -139,9 +153,6 @@ __dpa_rpc__ uint64_t trigger_first_iteration_rpc(doca_dpa_dev_t rdma_dpa_ctx_han
 				    ping_thread_arg.send_addr,
 				    ping_thread_arg.send_addr_length,
 				    DOCA_DPA_DEV_SUBMIT_FLAG_FLUSH | DOCA_DPA_DEV_SUBMIT_FLAG_OPTIMIZE_REPORTS);
-
-	/* prepare for next ping iteration */
-	(*((uint64_t *)ping_thread_arg.send_addr))++;
 
 	return 0;
 }

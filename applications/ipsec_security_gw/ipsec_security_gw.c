@@ -1047,7 +1047,9 @@ int main(int argc, char **argv)
 		.reserve_main_thread = true,
 	};
 	char cores_str[10];
-	char *eal_param[5] = {"", "-a", "00:00.0", "-l", ""};
+	char pid_str[50]; /* Buffer for "pid_" + process ID */
+	snprintf(pid_str, sizeof(pid_str), "pid_%d", getpid());
+	char *eal_param[7] = {"", "-a", "00:00.0", "-l", "", "--file-prefix", pid_str};
 	struct doca_log_backend *sdk_log;
 
 	app_cfg.dpdk_config = &dpdk_config;
@@ -1092,7 +1094,7 @@ int main(int argc, char **argv)
 
 	snprintf(cores_str, sizeof(cores_str), "0-%d", app_cfg.nb_cores - 1);
 	eal_param[4] = cores_str;
-	ret = rte_eal_init(5, eal_param);
+	ret = rte_eal_init(7, eal_param);
 	if (ret < 0) {
 		DOCA_LOG_ERR("EAL initialization failed");
 		doca_argp_destroy();

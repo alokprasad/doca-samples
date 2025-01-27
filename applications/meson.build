@@ -24,8 +24,8 @@
 
 project('DOCA_APPLICATIONS', 'C', 'CPP',
 	# Get version number from file.
-	version: run_command(find_program('cat'), files('VERSION'), check: true).stdout().strip(),
-	license: 'Proprietary',
+	version: run_command(find_program('cat'), ('../VERSION'), check: true).stdout().strip(),
+	license: 'BSD-3',
 	default_options: [
 		'buildtype=debug',
 		'cpp_std=c++11'
@@ -154,7 +154,12 @@ endif
 
 # Check for gRPC itself
 if flag_enable_grpc_support
-	dependency_grpc = dependency('grpc++', required: false)
+	# In later versions/homebrew versions, the .pc files only work out-of-the-box when using static linking
+	if get_option('upstream_grpc')
+		dependency_grpc = dependency('grpc++', required: false)
+	else
+		dependency_grpc = dependency('grpc++', static: true, required: false)
+	endif
 	if not dependency_grpc.found()
 		warning('Failed to find gRPC - Disabling gRPC support!')
 		flag_enable_grpc_support = false
@@ -176,8 +181,12 @@ if flag_enable_grpc_support
 		'-Wno-array-bounds',
 	]
 
-	grpc_c_args = grpc_warnings_disabling
-	grpc_cpp_args = grpc_warnings_disabling
+	grpc_cpp_warnings_disabling = grpc_warnings_disabling + [
+		'-fno-permissive',
+	]
+
+	grpc_c_args = base_c_args + grpc_warnings_disabling
+	grpc_cpp_args = base_cpp_args + grpc_cpp_warnings_disabling + ['-std=c++17']
 	grpc_link_args = []
 
 	# Workaround build issue in older versions
@@ -198,7 +207,7 @@ doca_name_to_pkgconfig_name = {
 
 # DPACC Support
 flag_enable_dpa_support = true
-default_dpa_target_device = 'bf3'
+dpacc_mcpu_flag = get_option('dpacc_mcpu')
 dpacc_dependencies = ['dpa', 'pcc', 'flexio']
 dpacc = find_program('dpacc', dirs: ['/opt/mellanox/doca/tools'], required: false)
 if not dpacc.found()
@@ -229,6 +238,10 @@ endif
 if get_option('enable_cross_compilation_to_dpu')
 	# Please update this folder if the base cross-compilation folder is located elsewhere
 	add_project_arguments('-I/root/doca-cross/usr/include', language: languages)
+endif
+
+if get_option('enable_mlx5dv_hws')
+	add_project_arguments('-D MLX5DV_HWS', language: languages)
 endif
 
 # Resolve irrelevant compiler warnings
@@ -270,14 +283,17 @@ app_list = [
 	    'file_compression',
 	    'file_integrity',
 	    'gpu_packet_processing',
+	    'ip_frag',
 	    'ipsec_security_gw',
 	    'nvme_emulation',
 	    'pcc',
 	    'psp_gateway',
 	    'secure_channel',
 	    'simple_fwd_vnf',
+	    'sta_offload',
 	    'storage',
 	    'switch',
+	    'upf_accel',
 	    'urom_rdmo',
 	    'yara_inspection',
 ]

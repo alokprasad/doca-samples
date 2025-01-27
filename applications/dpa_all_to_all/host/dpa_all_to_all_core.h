@@ -87,13 +87,12 @@ struct a2a_resources {
 									       remote events */
 	doca_dpa_dev_uintptr_t devptr_rp_remote_kernel_events; /* DOCA DPA remote processes remote events DPA handles */
 	struct doca_dpa_completion **dpa_completions;	       /* DOCA DPA completion contexts */
-	doca_dpa_dev_uintptr_t devptr_dpa_completions;	     /* DOCA DPA completion contexts handles device pointers */
-	struct doca_rdma **rdmas;			     /* DOCA RDMA contexts */
-	doca_dpa_dev_uintptr_t devptr_rdmas;		     /* DOCA DPA RDMA handlers device pointers */
-	struct doca_mmap *sendbuf_mmap;			     /* DOCA mmap for sendbuf host memory */
-	doca_dpa_dev_mmap_t sendbuf_dpa_mmap_handle;	     /* DPA handle for sendbuf DOCA mmap */
-	struct doca_mmap *recvbuf_mmap;			     /* DOCA mmap for recvbuf host memory */
-	struct doca_mmap **export_mmaps;		     /* DOCA mmap export from remote processes */
+	struct doca_rdma **rdmas;			       /* DOCA RDMA contexts */
+	doca_dpa_dev_uintptr_t devptr_rdmas;		       /* DOCA DPA RDMA handlers device pointers */
+	struct doca_mmap *sendbuf_mmap;			       /* DOCA mmap for sendbuf host memory */
+	doca_dpa_dev_mmap_t sendbuf_dpa_mmap_handle;	       /* DPA handle for sendbuf DOCA mmap */
+	struct doca_mmap *recvbuf_mmap;			       /* DOCA mmap for recvbuf host memory */
+	struct doca_mmap **export_mmaps;		       /* DOCA mmap export from remote processes */
 	doca_dpa_dev_mmap_t *export_mmaps_dpa_handle;	     /* DPA handle for DOCA mmap export from remote processes */
 	doca_dpa_dev_uintptr_t devptr_recvbufs_mmap_handles; /* DOCA DPA recvbuf mmap handles device pointers */
 	doca_dpa_dev_uintptr_t devptr_recvbufs;		     /* DOCA DPA recvbuf device pointers */

@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef APPLICATIONS_STORAGE_ZERO_COPY_STORAGE_APPLICATION_HPP_
-#define APPLICATIONS_STORAGE_ZERO_COPY_STORAGE_APPLICATION_HPP_
+#ifndef APPLICATIONS_STORAGE_ZERO_COPY_TARGET_RDMA_APPLICATION_HPP_
+#define APPLICATIONS_STORAGE_ZERO_COPY_TARGET_RDMA_APPLICATION_HPP_
 
 #include <cstdint>
 #include <string>
@@ -77,7 +77,7 @@ public:
 };
 
 /*
- * Create a storage application instance
+ * Create a RDMA target application instance
  *
  * @throws std::bad_alloc if memory allocation fails
  * @throws std::runtime_error if any other error occurs
@@ -85,9 +85,9 @@ public:
  * @cfg [in]: Application configuration
  * @return: Application instance
  */
-storage::zero_copy::target_rdma_application *make_storage_application(
+storage::zero_copy::target_rdma_application *make_target_rdma_application(
 	storage::zero_copy::target_rdma_application::configuration const &cfg);
 
 } /* namespace storage::zero_copy */
 
-#endif /* APPLICATIONS_STORAGE_ZERO_COPY_STORAGE_APPLICATION_HPP_ */
+#endif /* APPLICATIONS_STORAGE_ZERO_COPY_TARGET_RDMA_APPLICATION_HPP_ */

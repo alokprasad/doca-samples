@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef APPLICATIONS_STORAGE_ZERO_COPY_HOST_APPLICATION_HPP_
-#define APPLICATIONS_STORAGE_ZERO_COPY_HOST_APPLICATION_HPP_
+#ifndef APPLICATIONS_STORAGE_ZERO_COPY_INITIATOR_COMCH_APPLICATION_HPP_
+#define APPLICATIONS_STORAGE_ZERO_COPY_INITIATOR_COMCH_APPLICATION_HPP_
 
 #include <chrono>
 #include <cstdint>
@@ -38,7 +38,7 @@ namespace storage::zero_copy {
 class initiator_comch_application {
 public:
 	/*
-	 * Host application configuration
+	 * Application configuration
 	 */
 	struct configuration {
 		std::string device_id;
@@ -56,7 +56,7 @@ public:
 	static_assert(sizeof(bool) == 1, "Expected bool to occupy one byte");
 
 	/*
-	 * Host application stats
+	 * Application stats
 	 */
 	struct stats {
 		std::chrono::microseconds duration;
@@ -96,7 +96,7 @@ public:
 };
 
 /*
- * Create a host application instance
+ * Create a ComCh initiator application instance
  *
  * @throws std::bad_alloc if memory allocation fails
  * @throws std::runtime_error if any other error occurs
@@ -104,9 +104,9 @@ public:
  * @cfg [in]: Application configuration
  * @return: Application instance
  */
-storage::zero_copy::initiator_comch_application *make_host_application(
-	storage::zero_copy::initiator_comch_application::configuration const &cfg);
+storage::zero_copy::initiator_comch_application *make_initiator_comch_application(
+	const storage::zero_copy::initiator_comch_application::configuration &cfg);
 
 } /* namespace storage::zero_copy */
 
-#endif /* APPLICATIONS_STORAGE_ZERO_COPY_HOST_APPLICATION_HPP_ */
+#endif /* APPLICATIONS_STORAGE_ZERO_COPY_INITIATOR_COMCH_APPLICATION_HPP_ */

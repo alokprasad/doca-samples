@@ -57,6 +57,7 @@ DOCA_LOG_REGISTER(PSP_GATEWAY);
 
 static const uint32_t DEFAULT_TIMEOUT_US = 10000; /* default timeout for processing entries */
 static const uint32_t PSP_ICV_SIZE = 16;
+static const uint32_t MAX_ACTIONS_MEM_SIZE = 8388608 * 64;
 
 /**
  * @brief user context struct that will be used in entries process callback
@@ -130,9 +131,10 @@ PSP_GatewayFlows::PSP_GatewayFlows(psp_pf_dev *pf, uint16_t vf_port_id, psp_gw_a
 		rss_queues.push_back(i);
 	}
 	fwd_rss.type = DOCA_FLOW_FWD_RSS;
-	fwd_rss.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_IPV6;
-	fwd_rss.rss_queues = rss_queues.data();
-	fwd_rss.num_of_queues = (int)rss_queues.size();
+	fwd_rss.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd_rss.rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_IPV6;
+	fwd_rss.rss.queues_array = rss_queues.data();
+	fwd_rss.rss.nr_queues = (int)rss_queues.size();
 }
 
 PSP_GatewayFlows::~PSP_GatewayFlows()
@@ -243,6 +245,7 @@ doca_error_t PSP_GatewayFlows::start_port(uint16_t port_id, doca_dev *port_dev, 
 	std::string port_id_str = std::to_string(port_id); // note that set_devargs() clones the string contents
 	IF_SUCCESS(result, doca_flow_port_cfg_set_devargs(port_cfg, port_id_str.c_str()));
 	IF_SUCCESS(result, doca_flow_port_cfg_set_dev(port_cfg, port_dev));
+	IF_SUCCESS(result, doca_flow_port_cfg_set_actions_mem_size(port_cfg, rte_align32pow2(MAX_ACTIONS_MEM_SIZE)));
 	IF_SUCCESS(result, doca_flow_port_start(port_cfg, port));
 
 	if (result == DOCA_SUCCESS) {
@@ -288,6 +291,7 @@ doca_error_t PSP_GatewayFlows::init_doca_flow(const psp_gw_app_config *app_cfg)
 		doca_flow_cfg_set_nr_shared_resource(flow_cfg, mirror_res_id_count, DOCA_FLOW_SHARED_RESOURCE_MIRROR));
 	IF_SUCCESS(result, doca_flow_init(flow_cfg));
 	if (result != DOCA_SUCCESS) {
+		doca_flow_cfg_destroy(flow_cfg);
 		return result;
 	}
 	DOCA_LOG_INFO("Initialized DOCA Flow for a max of %d tunnels", app_cfg->max_tunnels);
@@ -644,7 +648,8 @@ doca_error_t PSP_GatewayFlows::ingress_acl_pipe_create(bool ipv4)
 	doca_flow_actions actions = {};
 	actions.has_crypto_encap = true;
 	actions.crypto_encap.action_type = DOCA_FLOW_CRYPTO_REFORMAT_DECAP;
-	actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_PSP_OVER_IPV4;
+	actions.crypto_encap.net_type = ipv4 ? DOCA_FLOW_CRYPTO_HEADER_PSP_OVER_IPV4 :
+					       DOCA_FLOW_CRYPTO_HEADER_PSP_OVER_IPV6;
 	actions.crypto_encap.icv_size = PSP_ICV_SIZE;
 
 	// In tunnel mode, we need to decap the eth/ip/udp/psp headers and add ethernet header
@@ -1372,10 +1377,10 @@ doca_error_t PSP_GatewayFlows::set_sample_bit_pipe_create(void)
 	DOCA_LOG_DBG("Sampling: matching (rand & 0x%x) == 1", mask);
 
 	doca_flow_match match_sampling_match_mask = {};
-	match_sampling_match_mask.parser_meta.random = mask;
+	match_sampling_match_mask.parser_meta.random = DOCA_HTOBE16(mask);
 
 	doca_flow_match match_sampling_match = {};
-	match_sampling_match.parser_meta.random = 0x1;
+	match_sampling_match.parser_meta.random = DOCA_HTOBE16(0x1);
 
 	doca_flow_fwd fwd = {};
 	fwd.type = DOCA_FLOW_FWD_PIPE;
@@ -1661,6 +1666,15 @@ doca_error_t PSP_GatewayFlows::ingress_root_pipe_create(void)
 						    &fwd_miss,
 						    nullptr,
 						    &root_default_drop));
+
+	result = doca_flow_entries_process(pf_dev->port_obj,
+					   pipe_queue,
+					   DEFAULT_TIMEOUT_US,
+					   app_config->mode == PSP_GW_MODE_TUNNEL ? 6 : 7);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to process entry: %s", doca_error_get_descr(result));
+		return result;
+	}
 
 	return result;
 }

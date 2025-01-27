@@ -94,11 +94,13 @@ doca_error_t vads_get(const char *dma_device_name,
 	/* Print some attributes of the vads */
 	DOCA_LOG_INFO("First 5 vads for process %u:", pid);
 	for (i = 0; i < num_vads && i < 5; ++i) {
-		DOCA_LOG_INFO("\tVad %d  -  Process name: %s, start address: 0x%" PRIx64 ", end address: 0x%" PRIx64,
+		DOCA_LOG_INFO("\tVad %d  -  Process name: %s, start address: 0x%" PRIx64 ", end address: 0x%" PRIx64
+			      ", path : %s",
 			      i,
 			      doca_apsh_vad_info_get(vads_list[i], DOCA_APSH_VMA_PROCESS_NAME),
 			      doca_apsh_vad_info_get(vads_list[i], DOCA_APSH_VMA_VM_START),
-			      doca_apsh_vad_info_get(vads_list[i], DOCA_APSH_VMA_VM_END));
+			      doca_apsh_vad_info_get(vads_list[i], DOCA_APSH_VMA_VM_END),
+			      doca_apsh_vad_info_get(vads_list[i], DOCA_APSH_VMA_FILE_PATH));
 	}
 
 	/* Cleanup */

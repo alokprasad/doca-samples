@@ -147,10 +147,16 @@ static doca_error_t create_root_pipe(struct doca_flow_port *df_port,
 	struct doca_flow_match all_match;
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	const char *pipe_name = "ROOT_PIPE";
-	struct doca_flow_fwd all_fwd = {.type = DOCA_FLOW_FWD_RSS,
-					.rss_queues = rxq_flow_queue_ids,
-					.num_of_queues = nb_queues,
-					.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP};
+	struct doca_flow_fwd all_fwd = {
+		.type = DOCA_FLOW_FWD_RSS,
+		.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED,
+		.rss =
+			{
+				.queues_array = rxq_flow_queue_ids,
+				.nr_queues = nb_queues,
+				.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP,
+			},
+	};
 	struct doca_flow_fwd fwd_miss = {
 		.type = DOCA_FLOW_FWD_DROP,
 	};

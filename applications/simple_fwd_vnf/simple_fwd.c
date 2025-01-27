@@ -225,6 +225,14 @@ static struct doca_flow_port *simple_fwd_create_doca_flow_port(int port_id)
 		goto destroy_port_cfg;
 	}
 
+	result = doca_flow_port_cfg_set_actions_mem_size(
+		port_cfg,
+		rte_align32pow2(SIMPLE_FWD_MAX_FLOWS * DOCA_FLOW_MAX_ENTRY_ACTIONS_MEM_SIZE));
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg actions mem size: %s", doca_error_get_descr(result));
+		goto destroy_port_cfg;
+	}
+
 	result = doca_flow_port_start(port_cfg, &port);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to start doca_flow port: %s", doca_error_get_descr(result));
@@ -433,9 +441,10 @@ static int simple_fwd_build_rss_flow(uint16_t port_id)
 		rss_queues[i] = i;
 
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
-	fwd.num_of_queues = port_cfg->nb_queues;
-	fwd.rss_queues = rss_queues;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
+	fwd.rss.nr_queues = port_cfg->nb_queues;
+	fwd.rss.queues_array = rss_queues;
 
 	status = (struct entries_status *)calloc(1, sizeof(struct entries_status));
 
@@ -634,7 +643,6 @@ static int simple_fwd_create_match_pipe(struct simple_fwd_port_cfg *port_cfg, en
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	struct doca_flow_pipe **pipe;
 	const char *pipe_name;
-	bool enable_strict_matching = false;
 	doca_error_t result;
 
 	memset(&match, 0, sizeof(match));
@@ -673,14 +681,12 @@ static int simple_fwd_create_match_pipe(struct simple_fwd_port_cfg *port_cfg, en
 		SET_MAC_ADDR(actions.outer.eth.src_mac, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 		SET_MAC_ADDR(actions.outer.eth.dst_mac, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 		actions.outer.eth.type = rte_cpu_to_be_16(DOCA_FLOW_ETHER_TYPE_IPV4);
-		actions.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
-		actions.outer.ip4.dst_ip = UINT32_MAX;
 		pipe = &simple_fwd_ins->pipe_gtp[port_cfg->port_id];
 		break;
 	case DOCA_FLOW_TUN_GRE:
 		pipe_name = "GRE_PIPE";
-		enable_strict_matching = true;
 		match.tun.gre_key = UINT32_MAX;
+		match.tun.key_present = true;
 		actions.decap_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
 		actions.decap_cfg.is_l2 = false;
 		SET_MAC_ADDR(actions.outer.eth.src_mac, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
@@ -717,12 +723,6 @@ static int simple_fwd_create_match_pipe(struct simple_fwd_port_cfg *port_cfg, en
 	result = doca_flow_pipe_cfg_set_is_root(pipe_cfg, false);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg is_root: %s", doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, enable_strict_matching);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
 	result = doca_flow_pipe_cfg_set_match(pipe_cfg, &match, NULL);
@@ -1247,6 +1247,19 @@ static enum doca_flow_l4_type_ext simple_fwd_l3_type_transfer(uint8_t pkt_l4_typ
 		return DOCA_FLOW_L4_TYPE_EXT_NONE;
 	}
 }
+
+/*
+ * Build action component
+ *
+ * @pinfo [in]: the packet info as represented in the application
+ * @match [out]: the actions component to build
+ */
+static void simple_fwd_build_entry_actions(struct doca_flow_actions *actions)
+{
+	SET_MAC_ADDR(actions->outer.eth.src_mac, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
+	SET_MAC_ADDR(actions->outer.eth.dst_mac, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66);
+}
+
 /*
  * Build match component
  *
@@ -1345,6 +1358,10 @@ static struct doca_flow_pipe_entry *simple_fwd_pipe_add_entry(struct simple_fwd_
 	actions.action_idx = 0;
 
 	status->ft_entry = user_ctx;
+
+	if (pinfo->tun_type != DOCA_FLOW_TUN_VXLAN) {
+		simple_fwd_build_entry_actions(&actions);
+	}
 
 	simple_fwd_build_entry_match(pinfo, &match);
 	simple_fwd_build_entry_monitor(pinfo, &monitor);

@@ -34,8 +34,9 @@
 
 DOCA_LOG_REGISTER(SWITCH::Core);
 
-#define MAX_PORT_STR_LEN 128	   /* Maximal length of port name */
-#define DEFAULT_TIMEOUT_US (10000) /* Timeout for processing pipe entries */
+#define MAX_PORT_STR_LEN 128			/* Maximal length of port name */
+#define DEFAULT_TIMEOUT_US (10000)		/* Timeout for processing pipe entries */
+#define ACTIONS_MEM_SIZE (8 * 1024 * 1024 * 64) /* Max supported actions memory size, 8M(flows)*64B */
 
 static struct flow_pipes_manager *pipes_manager;
 
@@ -459,6 +460,12 @@ static doca_error_t port_create(uint8_t portid, struct doca_flow_port **port)
 	result = doca_flow_port_cfg_set_devargs(port_cfg, port_id_str);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg devargs: %s", doca_error_get_descr(result));
+		goto destroy_port_cfg;
+	}
+
+	result = doca_flow_port_cfg_set_actions_mem_size(port_cfg, ACTIONS_MEM_SIZE);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg actions mem size: %s", doca_error_get_descr(result));
 		goto destroy_port_cfg;
 	}
 

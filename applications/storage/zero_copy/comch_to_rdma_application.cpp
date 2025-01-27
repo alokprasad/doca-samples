@@ -44,6 +44,7 @@
 #include <doca_pe.h>
 #include <doca_rdma.h>
 
+#include <storage_common/aligned_new.hpp>
 #include <storage_common/definitions.hpp>
 #include <storage_common/doca_utils.hpp>
 #include <storage_common/ip_address.hpp>
@@ -931,14 +932,12 @@ thread_context::thread_context(comch_to_rdma_application_impl *app_impl_,
 	  storage_response_tasks{},
 	  thread{}
 {
-	hot_data = static_cast<thread_hot_data *>(
-		aligned_alloc(std::alignment_of<thread_hot_data>::value, sizeof(thread_hot_data)));
-	if (hot_data == nullptr) {
-		throw std::bad_alloc{};
+	try {
+		hot_data = storage::common::make_aligned<thread_hot_data>{}.object();
+	} catch (std::exception const &ex) {
+		throw std::runtime_error{"Failed to allocate thread hot data: "s + ex.what()};
 	}
 
-	/* Call constructor(thread_hot_data) of hot_data using placement new */
-	new (hot_data) thread_hot_data{};
 	hot_data->id = thread_id;
 	hot_data->app_impl = app_impl_;
 	hot_data->batch_size = batch_size_;
@@ -1259,7 +1258,7 @@ doca_rdma *thread_context::create_rdma_context(doca_dev *dev, rdma_connection_ro
  */
 void thread_proc(uint32_t thread_id, thread_hot_data *hot_data, doca_pe *pe)
 {
-	while (hot_data->wait_flag) {
+	while (hot_data->wait_flag && hot_data->encountered_errors == false) {
 		std::this_thread::yield();
 	}
 
@@ -1328,6 +1327,13 @@ comch_to_rdma_application_impl::~comch_to_rdma_application_impl()
 		ret = doca_comch_server_destroy(m_comch_server);
 		if (ret != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to destroy doca_comch_server: %s", doca_error_get_name(ret));
+		}
+	}
+
+	if (m_ctrl_pe != nullptr) {
+		ret = doca_pe_destroy(m_ctrl_pe);
+		if (ret != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to destroy progress engine: %s", doca_error_get_name(ret));
 		}
 	}
 
@@ -1517,8 +1523,17 @@ void comch_to_rdma_application_impl::run(void)
 		/* create worker threads */
 		for (uint32_t ii = 0; ii != m_thread_contexts.size(); ++ii) {
 			m_thread_contexts[ii]->thread = std::thread{&thread_proc_catch_wrapper, m_thread_contexts[ii]};
-			storage::common::set_thread_affinity(m_thread_contexts[ii]->thread,
-							     m_cfg.cpu_set[m_thread_contexts[ii]->thread_id]);
+			try {
+				storage::common::set_thread_affinity(m_thread_contexts[ii]->thread,
+								     m_cfg.cpu_set[m_thread_contexts[ii]->thread_id]);
+			} catch (std::exception const &) {
+				m_thread_contexts[ii]->hot_data->abort(
+					"Failed to set affinity for thread to core: "s +
+					std::to_string(m_cfg.cpu_set[m_thread_contexts[ii]->thread_id]));
+				m_thread_contexts[ii]->hot_data->running_flag = false;
+				m_thread_contexts[ii]->hot_data->wait_flag = false;
+				throw;
+			}
 			m_thread_contexts[ii]->allocate_and_submit_tasks(m_remote_consumer_ids[ii]);
 		}
 
@@ -2089,7 +2104,7 @@ void comch_to_rdma_application_impl::destroy_objects(void)
  * @cfg [in]: Application configuration
  * @return: Application instance
  */
-storage::zero_copy::comch_to_rdma_application *make_dpu_application(
+storage::zero_copy::comch_to_rdma_application *make_comch_to_rdma_application(
 	storage::zero_copy::comch_to_rdma_application::configuration const &cfg)
 {
 	return new comch_to_rdma_application_impl{cfg};

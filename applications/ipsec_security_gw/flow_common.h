@@ -99,11 +99,10 @@ union security_gateway_pkt_meta {
 	struct {
 		uint32_t encrypt : 1;		  /* packet is on encrypt path */
 		uint32_t decrypt : 1;		  /* packet is on decrypt path */
-		uint32_t icv_size : 2;		  /* icv size, match on decap pipe */
 		uint32_t inner_ipv6 : 1;	  /* indicate if inner type is ipv6 for tunnel mode */
 		uint32_t decrypt_syndrome : 2;	  /* decrypt syndrome, set in debug mode when fwd to app */
 		uint32_t antireplay_syndrome : 2; /* anti-replay syndrome, set in debug mode when fwd to app*/
-		uint32_t rsvd0 : 3;		  /* must be set to 0 */
+		uint32_t rsvd0 : 5;		  /* must be set to 0 */
 		uint32_t rule_id : 20;		  /* indicate the rule ID */
 	};
 } __attribute__((__packed__));

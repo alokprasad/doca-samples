@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification, are permitted
 # provided that the following conditions are met:
@@ -34,7 +34,7 @@ set -e
 # This script takes 6 arguments:
 # arg1: The DPA compiler include flags
 # arg2: The output directory where the DPA binary should be generated
-# arg3: The targeted device for compilation. E.g., bf3
+# arg3: DPACC MCPU flag
 # arg4: The DPA compiler link flags
 # arg5: The DPA application name
 # arg6: The output DPA compiler application binary program name
@@ -42,7 +42,7 @@ set -e
 
 DPA_INCLUDE_FLAGS="$1"
 OUTPUT_DIR=$2
-TARGET_DEVICE=$3
+DPACC_MCPU_FLAG=$3
 DPA_LINK_FLAGS=$4
 DPA_APP_NAME=$5
 OUTPUT_ARCHIVE_NAME=$6
@@ -53,7 +53,6 @@ DPA_SOURCE_FILES="${@:7}"
 ####################
 
 DOCA_DPACC="/opt/mellanox/doca/tools/dpacc"
-TARGET_DEVICE="nv-dpa-${TARGET_DEVICE}"
 HOST_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_ALLOW_EXPERIMENTAL_API"
 DEVICE_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_DEV_ALLOW_EXPERIMENTAL_API"
 DEVICE_CC_FLAGS="-MMD -MT ${OUTPUT_ARCHIVE_NAME} ${DEVICE_CC_FLAGS}"
@@ -61,7 +60,7 @@ DEVICE_CC_FLAGS="-MMD -MT ${OUTPUT_ARCHIVE_NAME} ${DEVICE_CC_FLAGS}"
 ${DOCA_DPACC} \
 	${DPA_SOURCE_FILES} \
 	-o "${OUTPUT_ARCHIVE_NAME}" \
-	-mcpu=${TARGET_DEVICE} \
+	-mcpu=${DPACC_MCPU_FLAG} \
 	-hostcc=gcc \
 	-hostcc-options="${HOST_CC_FLAGS}" \
 	--devicecc-options="${DEVICE_CC_FLAGS}" \

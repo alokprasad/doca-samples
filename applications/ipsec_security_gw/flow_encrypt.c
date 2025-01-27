@@ -799,13 +799,17 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 		actions.has_crypto_encap = true;
 
 	actions.crypto_encap.action_type = DOCA_FLOW_CRYPTO_REFORMAT_ENCAP;
-	actions.crypto_encap.icv_size = 0xffff;
+	actions.crypto_encap.icv_size = get_icv_len_int(app_cfg->icv_length);
 	actions.crypto.resource_type = DOCA_FLOW_CRYPTO_RESOURCE_IPSEC_SA;
 	if (!app_cfg->sw_sn_inc_enable) {
 		actions.crypto.ipsec_sa.sn_en = !app_cfg->sw_sn_inc_enable;
 	}
 	actions.crypto.action_type = DOCA_FLOW_CRYPTO_ACTION_ENCRYPT;
+#ifdef MLX5DV_HWS
+	actions.crypto.crypto_id = UINT32_MAX;
+#else
 	actions.crypto.crypto_id = ENCRYPT_DUMMY_ID;
+#endif
 
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL) {
 		actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_ESP_TUNNEL;
@@ -1464,7 +1468,7 @@ static doca_error_t create_ipsec_encrypt_shared_object(struct ipsec_security_gw_
 	memset(&cfg, 0, sizeof(cfg));
 
 	cfg.domain = DOCA_FLOW_PIPE_DOMAIN_SECURE_EGRESS;
-	cfg.ipsec_sa_cfg.icv_len = app_sa_attrs->icv_length;
+	cfg.ipsec_sa_cfg.icv_len = app_cfg->icv_length;
 	cfg.ipsec_sa_cfg.salt = app_sa_attrs->salt;
 	cfg.ipsec_sa_cfg.key_cfg.key_type = app_sa_attrs->key_type;
 	cfg.ipsec_sa_cfg.key_cfg.key = (void *)&app_sa_attrs->enc_key_data;
@@ -1484,6 +1488,7 @@ static doca_error_t create_ipsec_encrypt_shared_object(struct ipsec_security_gw_
 	return DOCA_SUCCESS;
 }
 
+#ifndef MLX5DV_HWS
 /*
  * Create dummy SA, and config and bind doca flow shared resource with it
  *
@@ -1494,7 +1499,6 @@ static doca_error_t create_ipsec_encrypt_dummy_shared_object(struct ipsec_securi
 {
 	doca_error_t result;
 	struct ipsec_security_gw_sa_attrs dummy_sa_attr = {
-		.icv_length = DOCA_FLOW_CRYPTO_ICV_LENGTH_16,
 		.key_type = DOCA_FLOW_CRYPTO_KEY_256,
 		.enc_key_data[0] = 0x01,
 		.salt = 0x12345678,
@@ -1506,6 +1510,7 @@ static doca_error_t create_ipsec_encrypt_dummy_shared_object(struct ipsec_securi
 
 	return DOCA_SUCCESS;
 }
+#endif
 
 /*
  * Get the relevant pipe for adding the rule
@@ -1784,7 +1789,6 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 		create_ipsec_encrypt_shared_object_transport(&actions.crypto_encap, rule);
 	else
 		create_ipsec_encrypt_shared_object_transport_over_udp(&actions.crypto_encap, rule);
-	actions.crypto_encap.icv_size = get_icv_len_int(rule->sa_attrs.icv_length);
 	/* add entry to encrypt pipe*/
 	if (app_cfg->debug_mode) {
 		snprintf(encrypt_pipe->entries_info[encrypt_pipe->nb_entries].name, MAX_NAME_LEN, "rule%d", rule_id);
@@ -1831,10 +1835,13 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 static doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port)
 {
 	doca_error_t result;
-	int i;
+	int i, array_len = nb_rules;
 	uint32_t *res_array;
 
-	res_array = (uint32_t *)malloc((nb_rules + 1) * sizeof(uint32_t));
+#ifndef MLX5DV_HWS
+	array_len++;
+#endif
+	res_array = (uint32_t *)malloc(array_len * sizeof(uint32_t));
 	if (res_array == NULL) {
 		DOCA_LOG_ERR("Failed to allocate ids array");
 		return DOCA_ERROR_NO_MEMORY;
@@ -1843,9 +1850,11 @@ static doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port)
 	for (i = 0; i < nb_rules; i++) {
 		res_array[i] = i;
 	}
+#ifndef MLX5DV_HWS
 	res_array[nb_rules] = ENCRYPT_DUMMY_ID;
+#endif
 
-	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, nb_rules + 1, port);
+	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, array_len, port);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to bind encrypt IDs to the port");
 		free(res_array);
@@ -1943,7 +1952,6 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 			create_ipsec_encrypt_shared_object_transport(&actions.crypto_encap, &rules[rule_id]);
 		else
 			create_ipsec_encrypt_shared_object_transport_over_udp(&actions.crypto_encap, &rules[rule_id]);
-		actions.crypto_encap.icv_size = get_icv_len_int(rules[rule_id].sa_attrs.icv_length);
 
 		if (rule_id == nb_rules - 1 || encrypt_status.entries_in_queue == QUEUE_DEPTH - 1)
 			flags = DOCA_FLOW_NO_WAIT;
@@ -2018,10 +2026,11 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
 		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
 		return result;
 	}
-
+#ifndef MLX5DV_HWS
 	result = create_ipsec_encrypt_dummy_shared_object(app_cfg);
 	if (result != DOCA_SUCCESS)
 		return result;
+#endif
 
 	if (app_cfg->vxlan_encap) {
 		if (app_cfg->marker_encap) {
@@ -2230,7 +2239,7 @@ static doca_error_t prepare_packet_tunnel(struct rte_mbuf **m,
 	struct rte_ipv6_hdr *ipv6;
 	struct rte_mbuf *last_seg;
 	struct encrypt_rule *rule = &ctx->encrypt_rules[rule_idx];
-	uint32_t icv_len = get_icv_len_int(rule->sa_attrs.icv_length);
+	uint32_t icv_len = get_icv_len_int(ctx->config->icv_length);
 	bool sw_sn_inc = ctx->config->sw_sn_inc_enable;
 	void *trailer_pointer;
 	uint32_t payload_len, esp_len, encrypted_len, padding_len, trailer_len, padding_offset;
@@ -2328,7 +2337,7 @@ static doca_error_t prepare_packet_transport(struct rte_mbuf **m,
 	struct rte_ipv6_hdr *ipv6;
 	struct rte_mbuf *last_seg;
 	struct encrypt_rule *rule = &ctx->encrypt_rules[rule_idx];
-	uint32_t icv_len = get_icv_len_int(rule->sa_attrs.icv_length);
+	uint32_t icv_len = get_icv_len_int(ctx->config->icv_length);
 	void *trailer_pointer;
 	uint32_t payload_len, esp_len, encrypted_len, padding_len, trailer_len, padding_offset, l2_l3_len;
 	uint16_t reformat_encap_data_len;

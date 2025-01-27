@@ -35,7 +35,8 @@
 
 #include "dpa_all_to_all_core.h"
 
-#define MAX_MPI_WAIT_TIME (10) /* Maximum time to wait on MPI request */
+#define MAX_MPI_WAIT_TIME (10)	      /* Maximum time to wait on MPI request */
+#define SLEEP_IN_NANO_SEC (100000000) /* Sleeping interval for completion polling */
 
 DOCA_LOG_REGISTER(A2A::Core);
 
@@ -1176,17 +1177,13 @@ static doca_error_t destroy_rdma(struct doca_rdma *rdma, struct doca_dev *doca_d
 }
 
 /*
- * Prepare the DOCA DPA completion contexts which includes creating the contexts and their handles,
- * and allocating DOCA DPA device memory to hold the handles so that
- * they can be used in a DOCA DPA kernel function.
+ * Prepare the DOCA DPA completion contexts
  *
  * @resources [in/out]: All to all resources
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t prepare_dpa_a2a_dpa_completions(struct a2a_resources *resources)
 {
-	/* DOCA DPA completion handles */
-	doca_dpa_dev_completion_t *host_dpa_completion_handles;
 	int i, j;
 	doca_error_t result, tmp_result;
 
@@ -1198,7 +1195,7 @@ static doca_error_t prepare_dpa_a2a_dpa_completions(struct a2a_resources *resour
 	}
 	for (i = 0; i < resources->num_ranks; i++) {
 		result = doca_dpa_completion_create(resources->rdma_doca_dpa,
-						    resources->num_ranks * 2,
+						    resources->num_ranks,
 						    &(resources->dpa_completions[i]));
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to create DOCA DPA completion: %s", doca_error_get_descr(result));
@@ -1218,55 +1215,8 @@ static doca_error_t prepare_dpa_a2a_dpa_completions(struct a2a_resources *resour
 		}
 	}
 
-	/* Create device handles for the DOCA DPA completion contexts */
-	host_dpa_completion_handles =
-		(doca_dpa_dev_completion_t *)calloc(resources->num_ranks, sizeof(*host_dpa_completion_handles));
-	if (host_dpa_completion_handles == NULL) {
-		result = DOCA_ERROR_NO_MEMORY;
-		DOCA_LOG_ERR("Failed to allocate memory for DOCA DPA device completion handles");
-		goto destroy_dpa_completions;
-	}
-	for (j = 0; j < resources->num_ranks; j++) {
-		result = doca_dpa_completion_get_dpa_handle(resources->dpa_completions[j],
-							    &(host_dpa_completion_handles[j]));
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to get DOCA DPA completion handle: %s", doca_error_get_descr(result));
-			goto free_host_dpa_completion_handles;
-		}
-	}
-
-	/* Allocate DPA memory to hold the DOCA DPA completion handles */
-	result = doca_dpa_mem_alloc(resources->rdma_doca_dpa,
-				    sizeof(*host_dpa_completion_handles) * resources->num_ranks,
-				    &(resources->devptr_dpa_completions));
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to allocate DOCA DPA memory: %s", doca_error_get_descr(result));
-		goto free_host_dpa_completion_handles;
-	}
-
-	/* Copy the DOCA DPA completion handles from the host memory to the device memory */
-	result = doca_dpa_h2d_memcpy(resources->rdma_doca_dpa,
-				     resources->devptr_dpa_completions,
-				     (void *)host_dpa_completion_handles,
-				     sizeof(*host_dpa_completion_handles) * resources->num_ranks);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to copy DOCA DPA memory from host to device: %s", doca_error_get_descr(result));
-		goto free_dpa_completion_handles_dpa;
-	}
-
-	/* Free the host memory which used for the initialization */
-	free(host_dpa_completion_handles);
-
 	return result;
 
-free_dpa_completion_handles_dpa:
-	tmp_result = doca_dpa_mem_free(resources->rdma_doca_dpa, resources->devptr_dpa_completions);
-	if (tmp_result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to free DOCA DPA device memory: %s", doca_error_get_descr(tmp_result));
-		DOCA_ERROR_PROPAGATE(result, tmp_result);
-	}
-free_host_dpa_completion_handles:
-	free(host_dpa_completion_handles);
 destroy_dpa_completions:
 	for (j = 0; j < i; j++) {
 		tmp_result = doca_dpa_completion_destroy(resources->dpa_completions[j]);
@@ -1671,11 +1621,6 @@ destroy_rdmas:
 	}
 	free(resources->rdmas);
 destroy_dpa_completions:
-	tmp_result = doca_dpa_mem_free(resources->rdma_doca_dpa, resources->devptr_dpa_completions);
-	if (tmp_result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to free DOCA DPA device memory: %s", doca_error_get_descr(tmp_result));
-		DOCA_ERROR_PROPAGATE(result, tmp_result);
-	}
 	/* Destroy DOCA DPA completion contexts */
 	for (i = 0; i < resources->num_ranks; i++) {
 		tmp_result = doca_dpa_completion_destroy(resources->dpa_completions[i]);
@@ -1798,12 +1743,6 @@ doca_error_t dpa_a2a_destroy(struct a2a_resources *resources)
 	free(resources->rdmas);
 
 	/* Destroy DOCA DPA completions */
-	tmp_result = doca_dpa_mem_free(resources->rdma_doca_dpa, resources->devptr_dpa_completions);
-	if (tmp_result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to free DOCA DPA device memory: %s", doca_error_get_descr(tmp_result));
-		DOCA_ERROR_PROPAGATE(result, tmp_result);
-	}
-
 	for (i = 0; i < resources->num_ranks; i++) {
 		tmp_result = doca_dpa_completion_destroy(resources->dpa_completions[i]);
 		if (tmp_result != DOCA_SUCCESS) {
@@ -1889,16 +1828,40 @@ doca_error_t dpa_a2a_req_finalize(struct dpa_a2a_request *req)
 doca_error_t dpa_a2a_req_wait(struct dpa_a2a_request *req)
 {
 	doca_error_t result;
+	uint64_t se_val;
+	double elapsed_time_in_sec = 0;
+	struct timespec ts = {
+		.tv_sec = 0,
+		.tv_nsec = SLEEP_IN_NANO_SEC,
+	};
+	double sleep_in_sec = (double)SLEEP_IN_NANO_SEC / 1000000000;
 
 	if (req->resources == NULL) {
-		DOCA_LOG_ERR("Failed to wait for comp_event");
+		DOCA_LOG_ERR("Failed to wait for completion event, resourced uninitialized");
 		return DOCA_ERROR_UNEXPECTED;
 	}
-	result = doca_sync_event_wait_gt(req->resources->comp_event,
-					 req->resources->a2a_seq_num - 1,
-					 SYNC_EVENT_MASK_FFS);
-	if (result != DOCA_SUCCESS)
-		DOCA_LOG_ERR("Failed to wait for comp_event: %s", doca_error_get_descr(result));
+
+	while (1) {
+		result = doca_sync_event_get(req->resources->comp_event, &se_val);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to get completion event value: %s", doca_error_get_descr(result));
+			break;
+		}
+
+		if (se_val > (req->resources->a2a_seq_num - 1)) {
+			result = DOCA_SUCCESS;
+			break;
+		}
+
+		if (elapsed_time_in_sec > MAX_MPI_WAIT_TIME) {
+			result = DOCA_ERROR_TIME_OUT;
+			DOCA_LOG_ERR("Timeout polling completion event");
+			break;
+		}
+
+		nanosleep(&ts, &ts);
+		elapsed_time_in_sec += sleep_in_sec;
+	}
 
 	return result;
 }
@@ -1965,7 +1928,6 @@ doca_error_t dpa_ialltoall(void *sendbuf,
 						   &alltoall_kernel,
 						   req->resources->rdma_doca_dpa_handle,
 						   req->resources->devptr_rdmas,
-						   req->resources->devptr_dpa_completions,
 						   (uint64_t)(req->resources->sendbuf),
 						   req->resources->sendbuf_dpa_mmap_handle,
 						   (uint64_t)sendcount,

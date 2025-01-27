@@ -59,7 +59,7 @@ doca_error_t flow_ct_register_params(void);
  * @nb_arm_queues [in]: Number of threads the sample will use
  * @nb_ctrl_queues [in]: Number of control queues
  * @nb_user_actions [in]: Number of CT user actions
- * @flow_log_cb [in]: Flow log callback
+ * @entry_finalize_cb [in]: Entry finalize callback
  * @nb_ipv4_sessions [in]: Number of IPv4 sessions
  * @nb_ipv6_sessions [in]: Number of IPv6 sessions
  * @dup_filter_sz [in]: Number of connections to cache in duplication filter
@@ -75,7 +75,7 @@ doca_error_t init_doca_flow_ct(uint32_t flags,
 			       uint32_t nb_arm_queues,
 			       uint32_t nb_ctrl_queues,
 			       uint32_t nb_user_actions,
-			       doca_flow_ct_flow_log_cb flow_log_cb,
+			       doca_flow_ct_entry_finalize_cb entry_finalize_cb,
 			       uint32_t nb_ipv4_sessions,
 			       uint32_t nb_ipv6_sessions,
 			       uint32_t dup_filter_sz,

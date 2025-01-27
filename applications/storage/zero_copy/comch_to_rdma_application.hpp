@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef APPLICATIONS_STORAGE_ZERO_COPY_DPU_APPLICATION_HPP_
-#define APPLICATIONS_STORAGE_ZERO_COPY_DPU_APPLICATION_HPP_
+#ifndef APPLICATIONS_STORAGE_ZERO_COPY_COMCH_TO_RDMA_APPLICATION_HPP_
+#define APPLICATIONS_STORAGE_ZERO_COPY_COMCH_TO_RDMA_APPLICATION_HPP_
 
 #include <cstdint>
 #include <string>
@@ -37,7 +37,7 @@ namespace storage::zero_copy {
 class comch_to_rdma_application {
 public:
 	/*
-	 * DPU application configuration
+	 * Application configuration
 	 */
 	struct configuration {
 		std::string device_id;
@@ -48,7 +48,7 @@ public:
 	};
 
 	/*
-	 * DPU application stats
+	 * Application stats
 	 */
 	struct thread_stats {
 		uint64_t pe_hit_count;
@@ -81,7 +81,7 @@ public:
 };
 
 /*
- * Create a DPU application instance
+ * Create a ComCh to RDMA application instance
  *
  * @throws std::bad_alloc if memory allocation fails
  * @throws std::runtime_error if any other error occurs
@@ -89,9 +89,9 @@ public:
  * @cfg [in]: Application configuration
  * @return: Application instance
  */
-storage::zero_copy::comch_to_rdma_application *make_dpu_application(
+storage::zero_copy::comch_to_rdma_application *make_comch_to_rdma_application(
 	storage::zero_copy::comch_to_rdma_application::configuration const &cfg);
 
 } /* namespace storage::zero_copy */
 
-#endif /* APPLICATIONS_STORAGE_ZERO_COPY_DPU_APPLICATION_HPP_ */
+#endif /* APPLICATIONS_STORAGE_ZERO_COPY_COMCH_TO_RDMA_APPLICATION_HPP_ */

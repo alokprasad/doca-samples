@@ -56,6 +56,7 @@ static doca_error_t pf_device_name_param_callback(void *param, void *config)
 	return DOCA_SUCCESS;
 }
 
+#ifdef DOCA_ARCH_DPU
 /*
  * ARGP Callback - Handle RDMA device name parameter
  *
@@ -78,11 +79,12 @@ static doca_error_t rdma_device_name_param_callback(void *param, void *config)
 
 	return DOCA_SUCCESS;
 }
+#endif
 
 doca_error_t register_dpa_params(void)
 {
 	doca_error_t result;
-	struct doca_argp_param *pf_device_param, *rdma_device_param;
+	struct doca_argp_param *pf_device_param;
 
 	result = doca_argp_param_create(&pf_device_param);
 	if (result != DOCA_SUCCESS) {
@@ -103,6 +105,8 @@ doca_error_t register_dpa_params(void)
 		return result;
 	}
 
+#ifdef DOCA_ARCH_DPU
+	struct doca_argp_param *rdma_device_param;
 	result = doca_argp_param_create(&rdma_device_param);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
@@ -121,6 +125,7 @@ doca_error_t register_dpa_params(void)
 		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
 		return result;
 	}
+#endif
 
 	return DOCA_SUCCESS;
 }
@@ -204,13 +209,13 @@ static doca_error_t open_dpa_device(const char *pf_device_name,
 	doca_devinfo_destroy_list(dev_list);
 
 	if (*pf_doca_device == NULL) {
-		DOCA_LOG_ERR("Couldn't get PF DOCA device");
+		DOCA_LOG_ERR("Couldn't open PF DOCA device");
 		return DOCA_ERROR_NOT_FOUND;
 	}
 
 #ifdef DOCA_ARCH_DPU
 	if (*rdma_doca_device == NULL) {
-		DOCA_LOG_ERR("Couldn't get RDMA DOCA device");
+		DOCA_LOG_ERR("Couldn't open RDMA DOCA device");
 		return DOCA_ERROR_NOT_FOUND;
 	}
 #else

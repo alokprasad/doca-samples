@@ -85,7 +85,11 @@ static doca_error_t create_ipsec_decrypt_pipe(struct doca_flow_port *port,
 	if (!app_cfg->sw_antireplay) {
 		actions.crypto.ipsec_sa.sn_en = !app_cfg->sw_antireplay;
 	}
+#ifdef MLX5DV_HWS
+	actions.crypto.crypto_id = UINT32_MAX;
+#else
 	actions.crypto.crypto_id = DECRYPT_DUMMY_ID;
+#endif
 	actions.meta.pkt_meta = 0xffffffff;
 	actions_arr[0] = &actions;
 
@@ -186,9 +190,10 @@ static void get_bad_syndrome_pipe_fwd(struct ipsec_security_gw_config *app_cfg,
 				rss_queues[i] = i + 1;
 
 			fwd->type = DOCA_FLOW_FWD_RSS;
-			fwd->rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_IPV6;
-			fwd->rss_queues = rss_queues;
-			fwd->num_of_queues = nb_queues - 1;
+			fwd->rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+			fwd->rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_IPV6;
+			fwd->rss.queues_array = rss_queues;
+			fwd->rss.nr_queues = nb_queues - 1;
 		}
 	} else {
 		fwd->type = DOCA_FLOW_FWD_DROP;
@@ -582,7 +587,7 @@ static doca_error_t create_ipsec_decap_pipe(struct doca_flow_port *port,
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	struct doca_flow_fwd fwd_miss;
 	struct doca_flow_fwd *fwd_miss_ptr = NULL;
-	uint32_t nb_entries = 3; /* one entry per icv size */
+	uint32_t nb_entries = 1;
 	doca_error_t result;
 	union security_gateway_pkt_meta meta = {0};
 
@@ -599,7 +604,6 @@ static doca_error_t create_ipsec_decap_pipe(struct doca_flow_port *port,
 	match_mask.meta.u32[0] = DOCA_HTOBE32(0xff);
 	match.meta.u32[0] = 0xffffffff;
 
-	meta.icv_size = -1;
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL)
 		meta.inner_ipv6 = 1;
 
@@ -611,7 +615,7 @@ static doca_error_t create_ipsec_decap_pipe(struct doca_flow_port *port,
 		actions.has_crypto_encap = true;
 
 	actions.crypto_encap.action_type = DOCA_FLOW_CRYPTO_REFORMAT_DECAP;
-	actions.crypto_encap.icv_size = 0xffff;
+	actions.crypto_encap.icv_size = get_icv_len_int(app_cfg->icv_length);
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL) {
 		actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_ESP_TUNNEL;
 		uint8_t reformat_decap_data[14] = {
@@ -633,7 +637,7 @@ static doca_error_t create_ipsec_decap_pipe(struct doca_flow_port *port,
 
 		memcpy(actions.crypto_encap.encap_data, reformat_decap_data, sizeof(reformat_decap_data));
 		actions.crypto_encap.data_size = sizeof(reformat_decap_data);
-		nb_entries = 6; /* double for tunnel mode, for inner ip version */
+		nb_entries *= 2; /* double for tunnel mode, for inner ip version */
 	} else if (app_cfg->mode == IPSEC_SECURITY_GW_TRANSPORT)
 		actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_ESP_OVER_IPV4;
 	else
@@ -931,37 +935,33 @@ static void create_tunnel_decap_tunnel(struct doca_flow_header_eth *eth_header,
 }
 
 /*
- * Add entry to the decap pipe for specific ICV len
+ * Add ipv4 entry to the decap pipe (if tunnel mode add ipv6 entry) with match on inner ip
  *
  * @app_cfg [in]: application configuration struct
+ * @port [in]: port of the pipe
  * @eth_header [in]: contains the src mac address
  * @pipe [in]: pipe to add entries to
- * @icv_len [in]: icv len to match in pkt meta and use in actions
- * @entries_status [in]: entries status struct
+ *
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t add_decap_entry(struct ipsec_security_gw_config *app_cfg,
-				    struct doca_flow_header_eth *eth_header,
-				    struct security_gateway_pipe_info *pipe,
-				    enum doca_flow_crypto_icv_len icv_len,
-				    struct entries_status *entries_status)
+static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_cfg,
+					   struct doca_flow_port *port,
+					   struct doca_flow_header_eth *eth_header,
+					   struct security_gateway_pipe_info *pipe)
 {
 	union security_gateway_pkt_meta meta = {0};
 	struct doca_flow_match match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
+	struct entries_status entries_status;
 	doca_error_t result;
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
+	memset(&entries_status, 0, sizeof(entries_status));
 
-	match.parser_meta.ipsec_syndrome = 0;
-	match.meta.u32[0] = 0;
-
-	meta.icv_size = icv_len;
 	meta.inner_ipv6 = 0;
 	match.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
-	actions.crypto_encap.icv_size = get_icv_len_int(icv_len);
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL)
 		create_tunnel_decap_tunnel(eth_header,
 					   DOCA_FLOW_L3_TYPE_IP4,
@@ -969,7 +969,7 @@ static doca_error_t add_decap_entry(struct ipsec_security_gw_config *app_cfg,
 					   &actions.crypto_encap.data_size);
 
 	if (app_cfg->debug_mode) {
-		snprintf(pipe->entries_info[pipe->nb_entries].name, MAX_NAME_LEN, "decap_icv%d", icv_len);
+		snprintf(pipe->entries_info[pipe->nb_entries].name, MAX_NAME_LEN, "decap_inner_ipv4");
 		entry = &pipe->entries_info[pipe->nb_entries++].entry;
 	}
 	result = doca_flow_pipe_add_entry(0,
@@ -979,16 +979,15 @@ static doca_error_t add_decap_entry(struct ipsec_security_gw_config *app_cfg,
 					  NULL,
 					  NULL,
 					  DOCA_FLOW_NO_WAIT,
-					  entries_status,
+					  &entries_status,
 					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 		return result;
 	}
-	entries_status->entries_in_queue += 1;
+	entries_status.entries_in_queue += 1;
 
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL) {
-		meta.icv_size = icv_len;
 		meta.inner_ipv6 = 1;
 		match.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
 		create_tunnel_decap_tunnel(eth_header,
@@ -996,7 +995,7 @@ static doca_error_t add_decap_entry(struct ipsec_security_gw_config *app_cfg,
 					   actions.crypto_encap.encap_data,
 					   &actions.crypto_encap.data_size);
 		if (app_cfg->debug_mode) {
-			snprintf(pipe->entries_info[pipe->nb_entries].name, MAX_NAME_LEN, "decap_icv%d_ip6", icv_len);
+			snprintf(pipe->entries_info[pipe->nb_entries].name, MAX_NAME_LEN, "decap_inner_ipv6");
 			entry = &pipe->entries_info[pipe->nb_entries++].entry;
 		}
 		result = doca_flow_pipe_add_entry(0,
@@ -1006,52 +1005,13 @@ static doca_error_t add_decap_entry(struct ipsec_security_gw_config *app_cfg,
 						  NULL,
 						  NULL,
 						  DOCA_FLOW_NO_WAIT,
-						  entries_status,
+						  &entries_status,
 						  entry);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
 		}
-		entries_status->entries_in_queue += 1;
-	}
-	return DOCA_SUCCESS;
-}
-
-/*
- * Add entries to the decap pipe, match on icv len and if tunnel mode also inner ip version
- *
- * @app_cfg [in]: application configuration struct
- * @port [in]: port of the pipe
- * @eth_header [in]: contains the src mac address
- * @pipe [in]: pipe to add entries to
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_cfg,
-					   struct doca_flow_port *port,
-					   struct doca_flow_header_eth *eth_header,
-					   struct security_gateway_pipe_info *pipe)
-{
-	struct entries_status entries_status;
-	doca_error_t result;
-
-	memset(&entries_status, 0, sizeof(entries_status));
-
-	result = add_decap_entry(app_cfg, eth_header, pipe, DOCA_FLOW_CRYPTO_ICV_LENGTH_8, &entries_status);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to add icv 8 decap entry: %s", doca_error_get_descr(result));
-		return result;
-	}
-
-	result = add_decap_entry(app_cfg, eth_header, pipe, DOCA_FLOW_CRYPTO_ICV_LENGTH_12, &entries_status);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to add icv 12 decap entry: %s", doca_error_get_descr(result));
-		return result;
-	}
-
-	result = add_decap_entry(app_cfg, eth_header, pipe, DOCA_FLOW_CRYPTO_ICV_LENGTH_16, &entries_status);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to add icv 16 decap entry: %s", doca_error_get_descr(result));
-		return result;
+		entries_status.entries_in_queue += 1;
 	}
 
 	do {
@@ -1059,6 +1019,7 @@ static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_
 		if (result != DOCA_SUCCESS)
 			return result;
 	} while (entries_status.entries_in_queue > 0);
+
 	return DOCA_SUCCESS;
 }
 
@@ -1293,7 +1254,7 @@ static doca_error_t create_ipsec_decrypt_shared_object(struct ipsec_security_gw_
 	memset(&cfg, 0, sizeof(cfg));
 
 	cfg.domain = DOCA_FLOW_PIPE_DOMAIN_SECURE_INGRESS;
-	cfg.ipsec_sa_cfg.icv_len = app_sa_attrs->icv_length;
+	cfg.ipsec_sa_cfg.icv_len = app_cfg->icv_length;
 	cfg.ipsec_sa_cfg.salt = app_sa_attrs->salt;
 	cfg.ipsec_sa_cfg.key_cfg.key_type = app_sa_attrs->key_type;
 	cfg.ipsec_sa_cfg.key_cfg.key = (void *)&app_sa_attrs->enc_key_data;
@@ -1314,6 +1275,7 @@ static doca_error_t create_ipsec_decrypt_shared_object(struct ipsec_security_gw_
 	return DOCA_SUCCESS;
 }
 
+#ifndef MLX5DV_HWS
 /*
  * Create dummy SA, and config and bind doca flow shared resource with it
  *
@@ -1324,7 +1286,6 @@ static doca_error_t create_ipsec_decrypt_dummy_shared_object(struct ipsec_securi
 {
 	doca_error_t result;
 	struct ipsec_security_gw_sa_attrs dummy_sa_attr = {
-		.icv_length = DOCA_FLOW_CRYPTO_ICV_LENGTH_16,
 		.key_type = DOCA_FLOW_CRYPTO_KEY_256,
 		.enc_key_data[0] = 0x01,
 		.salt = 0x12345678,
@@ -1336,6 +1297,7 @@ static doca_error_t create_ipsec_decrypt_dummy_shared_object(struct ipsec_securi
 
 	return DOCA_SUCCESS;
 }
+#endif
 
 doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 			       int rule_id,
@@ -1378,7 +1340,6 @@ doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 	meta.decrypt = 1;
 	meta.rule_id = rule_id;
 	meta.inner_ipv6 = 0;
-	meta.icv_size = rule->sa_attrs.icv_length;
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL && rule->inner_l3_type == DOCA_FLOW_L3_TYPE_IP6)
 		meta.inner_ipv6 = 1;
 	actions.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
@@ -1438,10 +1399,13 @@ doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 static doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_flow_port *port)
 {
 	doca_error_t result;
-	int i;
+	int i, array_len = nb_rules;
 	uint32_t *res_array;
 
-	res_array = (uint32_t *)malloc((nb_rules + 1) * sizeof(uint32_t));
+#ifndef MLX5DV_HWS
+	array_len++;
+#endif
+	res_array = (uint32_t *)malloc(array_len * sizeof(uint32_t));
 	if (res_array == NULL) {
 		DOCA_LOG_ERR("Failed to allocate ids array");
 		return DOCA_ERROR_NO_MEMORY;
@@ -1450,9 +1414,10 @@ static doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_f
 	for (i = 0; i < nb_rules; i++) {
 		res_array[i] = initial_id + i;
 	}
+#ifndef MLX5DV_HWS
 	res_array[nb_rules] = DECRYPT_DUMMY_ID;
-
-	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, nb_rules + 1, port);
+#endif
+	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, array_len, port);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to bind decrypt IDs to the port");
 		free(res_array);
@@ -1525,7 +1490,6 @@ doca_error_t add_decrypt_entries(struct ipsec_security_gw_config *app_cfg,
 		meta.decrypt = 1;
 		meta.rule_id = rule_id;
 		meta.inner_ipv6 = 0;
-		meta.icv_size = rules[rule_id].sa_attrs.icv_length;
 		if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL && rules[rule_id].inner_l3_type == DOCA_FLOW_L3_TYPE_IP6)
 			meta.inner_ipv6 = 1;
 
@@ -1653,11 +1617,11 @@ doca_error_t ipsec_security_gw_insert_decrypt_rules(struct ipsec_security_gw_por
 		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
 		return result;
 	}
-
+#ifndef MLX5DV_HWS
 	result = create_ipsec_decrypt_dummy_shared_object(app_cfg);
 	if (result != DOCA_SUCCESS)
 		return result;
-
+#endif
 	DOCA_LOG_DBG("Creating IPv4 decrypt pipe");
 	snprintf(app_cfg->decrypt_pipes.decrypt_ipv4_pipe.name, MAX_NAME_LEN, "IPv4_decrypt");
 	result = create_ipsec_decrypt_pipe(secured_port,
@@ -1805,18 +1769,16 @@ static doca_error_t remove_packet_tail(struct rte_mbuf **m, uint32_t icv_len, ui
  *
  * @m [in]: the mbuf to update
  * @ctx [in]: the security gateway context
- * @rule_idx [in]: the index of the rule to use
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t decap_packet_tunnel(struct rte_mbuf **m, struct ipsec_security_gw_core_ctx *ctx, uint32_t rule_idx)
+static doca_error_t decap_packet_tunnel(struct rte_mbuf **m, struct ipsec_security_gw_core_ctx *ctx)
 {
 	uint32_t iv_len = 8;
 	struct rte_ether_hdr *l2_header;
 	struct rte_ipv4_hdr *ipv4;
 	uint32_t proto, l3_len;
 	char *np;
-	struct decrypt_rule *rule = &ctx->decrypt_rules[rule_idx];
-	uint32_t icv_len = get_icv_len_int(rule->sa_attrs.icv_length);
+	uint32_t icv_len = get_icv_len_int(ctx->config->icv_length);
 	uint16_t reformat_decap_data_len;
 	enum doca_flow_l3_type inner_l3_type;
 	doca_error_t result;
@@ -1859,13 +1821,11 @@ static doca_error_t decap_packet_tunnel(struct rte_mbuf **m, struct ipsec_securi
  *
  * @m [in]: the mbuf to update
  * @ctx [in]: the security gateway context
- * @rule_idx [in]: the index of the rule to use
  * @udp_transport [in]: true for UDP transport mode
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t decap_packet_transport(struct rte_mbuf **m,
 					   struct ipsec_security_gw_core_ctx *ctx,
-					   uint32_t rule_idx,
 					   bool udp_transport)
 {
 	uint32_t iv_len = 8;
@@ -1875,8 +1835,7 @@ static doca_error_t decap_packet_transport(struct rte_mbuf **m,
 	struct rte_ipv6_hdr *ipv6 = NULL;
 	uint32_t l2_l3_len, proto;
 	int i;
-	struct decrypt_rule *rule = &ctx->decrypt_rules[rule_idx];
-	uint32_t icv_len = get_icv_len_int(rule->sa_attrs.icv_length);
+	uint32_t icv_len = get_icv_len_int(ctx->config->icv_length);
 	doca_error_t result;
 
 	result = remove_packet_tail(m, icv_len, &proto);
@@ -2033,9 +1992,9 @@ doca_error_t handle_secured_packets_received(struct rte_mbuf **packet,
 	}
 
 	if (ctx->config->mode == IPSEC_SECURITY_GW_TRANSPORT)
-		return decap_packet_transport(packet, ctx, rule_idx, false);
+		return decap_packet_transport(packet, ctx, false);
 	else if (ctx->config->mode == IPSEC_SECURITY_GW_UDP_TRANSPORT)
-		return decap_packet_transport(packet, ctx, rule_idx, true);
+		return decap_packet_transport(packet, ctx, true);
 	else
-		return decap_packet_tunnel(packet, ctx, rule_idx);
+		return decap_packet_tunnel(packet, ctx);
 }

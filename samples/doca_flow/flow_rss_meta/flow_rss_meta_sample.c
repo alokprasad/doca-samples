@@ -122,9 +122,10 @@ static doca_error_t create_rss_meta_pipe(struct doca_flow_port *port, struct doc
 	/* RSS queue - send matched traffic to queue 0  */
 	rss_queues[0] = 0;
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.rss_queues = rss_queues;
-	fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_TCP;
-	fwd.num_of_queues = 1;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.queues_array = rss_queues;
+	fwd.rss.inner_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_TCP;
+	fwd.rss.nr_queues = 1;
 
 	fwd_miss.type = DOCA_FLOW_FWD_DROP;
 
@@ -186,6 +187,7 @@ doca_error_t flow_rss_meta(int nb_queues)
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct doca_flow_pipe *pipe;
 	struct entries_status status;
 	int num_of_entries = 1;
@@ -199,7 +201,8 @@ doca_error_t flow_rss_meta(int nb_queues)
 	}
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
-	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, num_of_entries));
+	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();

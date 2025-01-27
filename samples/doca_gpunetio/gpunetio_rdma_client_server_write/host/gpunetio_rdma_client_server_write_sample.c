@@ -28,8 +28,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#include <rte_ethdev.h>
-
 #include <doca_log.h>
 #include <doca_error.h>
 #include <doca_argp.h>
@@ -688,6 +686,12 @@ doca_error_t rdma_write_server(struct rdma_config *cfg)
 			goto close_connection;
 		}
 
+		if (remote_conn_details_len <= 0 || remote_conn_details_len >= (size_t)-1) {
+			DOCA_LOG_ERR("Received wrong remote connection details");
+			result = DOCA_ERROR_NO_MEMORY;
+			goto close_connection;
+		}
+
 		remote_conn_details = calloc(1, remote_conn_details_len);
 		if (remote_conn_details == NULL) {
 			DOCA_LOG_ERR("Failed to allocate memory for remote connection details");
@@ -937,6 +941,12 @@ doca_error_t rdma_write_client(struct rdma_config *cfg)
 		if (recv(oob_sock_fd, &remote_conn_details_len, sizeof(size_t), 0) < 0) {
 			DOCA_LOG_ERR("Failed to receive remote connection details");
 			result = DOCA_ERROR_CONNECTION_ABORTED;
+			goto close_connection;
+		}
+
+		if (remote_conn_details_len <= 0 || remote_conn_details_len >= (size_t)-1) {
+			DOCA_LOG_ERR("Received wrong remote connection details");
+			result = DOCA_ERROR_NO_MEMORY;
 			goto close_connection;
 		}
 

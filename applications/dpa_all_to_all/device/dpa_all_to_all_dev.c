@@ -36,7 +36,6 @@
  *
  * @rdma_dpa_ctx_handle [in]: Extended DPA context handle for RDMA DOCA device. Needed when running from DPU
  * @rdmas_dev_ptr [in]: An array of DOCA DPA RDMA handles
- * @dpa_completions_dev_ptr [in]: An array of DOCA DPA completion handles
  * @local_buf_addr [in]: local buffer address for alltoall
  * @local_buf_mmap_handle [in]: local buffer mmap handle for alltoall
  * @count [in]: Number of elements to write
@@ -53,7 +52,6 @@
  */
 __dpa_global__ void alltoall_kernel(doca_dpa_dev_t rdma_dpa_ctx_handle,
 				    doca_dpa_dev_uintptr_t rdmas_dev_ptr,
-				    doca_dpa_dev_uintptr_t dpa_completions_dev_ptr,
 				    uint64_t local_buf_addr,
 				    doca_dpa_dev_mmap_t local_buf_mmap_handle,
 				    uint64_t count,
@@ -68,8 +66,6 @@ __dpa_global__ void alltoall_kernel(doca_dpa_dev_t rdma_dpa_ctx_handle,
 {
 	/* Convert the RDMA DPA device pointer to rdma handle type */
 	doca_dpa_dev_rdma_t *rdma_handles = (doca_dpa_dev_rdma_t *)rdmas_dev_ptr;
-	/* Convert the DPA device pointer to DPA completion handle type */
-	doca_dpa_dev_completion_t *dpa_completion_handles = (doca_dpa_dev_completion_t *)dpa_completions_dev_ptr;
 	/* Convert the remote receive buffer addresses DPA device pointer to array of pointers */
 	uintptr_t *remote_recvbufs = (uintptr_t *)remote_recvbufs_dev_ptr;
 	/* Convert the remote receive buffer mmap handles DPA device pointer to array of mmap handle type */
@@ -84,10 +80,6 @@ __dpa_global__ void alltoall_kernel(doca_dpa_dev_t rdma_dpa_ctx_handle,
 	/* Get the number of all threads that are running this kernel */
 	unsigned int num_threads = doca_dpa_dev_num_threads();
 	unsigned int i;
-	doca_dpa_dev_completion_element_t comp_element;
-	/* we expect 2 completions, one for the RDMA write operation and second for the RDMA signal */
-	const uint32_t expected_comp_count = 2;
-	uint32_t tmp_comp_count = expected_comp_count;
 
 	if (rdma_dpa_ctx_handle) {
 		doca_dpa_dev_device_set(rdma_dpa_ctx_handle);
@@ -108,7 +100,8 @@ __dpa_global__ void alltoall_kernel(doca_dpa_dev_t rdma_dpa_ctx_handle,
 					     local_buf_mmap_handle,
 					     local_buf_addr + (i * count * type_length),
 					     (type_length * count),
-					     DOCA_DPA_DEV_SUBMIT_FLAG_FLUSH);
+					     DOCA_DPA_DEV_SUBMIT_FLAG_OPTIMIZE_REPORTS |
+						     DOCA_DPA_DEV_SUBMIT_FLAG_FLUSH);
 
 		doca_dpa_dev_rdma_signal_set(rdma_handles[i], 0, remote_events[i], a2a_seq_num);
 	}
@@ -116,17 +109,8 @@ __dpa_global__ void alltoall_kernel(doca_dpa_dev_t rdma_dpa_ctx_handle,
 	/*
 	 * Each thread should wait on his local events to make sure that the
 	 * remote processes have finished RDMA write operations.
-	 * Each thread should also wait till its rdma operations are done and that's when it receives two completions
-	 * on the attached DPA completion context
 	 */
 	for (i = thread_rank; i < num_ranks; i += num_threads) {
 		doca_dpa_dev_sync_event_wait_gt(local_events[i], a2a_seq_num - 1, SYNC_EVENT_MASK_FFS);
-
-		while (tmp_comp_count) {
-			if (doca_dpa_dev_get_completion(dpa_completion_handles[i], &comp_element) == 1) {
-				tmp_comp_count--;
-			}
-		}
-		tmp_comp_count = expected_comp_count;
 	}
 }

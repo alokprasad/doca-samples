@@ -130,6 +130,12 @@ static doca_error_t create_doca_flow_port(int port_id,
 		goto destroy_port_cfg;
 	}
 
+	result = doca_flow_port_cfg_set_actions_mem_size(port_cfg, rte_align32pow2(MAX_ACTIONS_MEM_SIZE));
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg actions memory size: %s", doca_error_get_descr(result));
+		goto destroy_port_cfg;
+	}
+
 	if (sn_offload_disable) {
 		result = doca_flow_port_cfg_set_ipsec_sn_offload_disable(port_cfg);
 		if (result != DOCA_SUCCESS) {
@@ -215,9 +221,12 @@ doca_error_t ipsec_security_gw_init_doca_flow(const struct ipsec_security_gw_con
 		return result;
 	}
 
-	/* DECRYPT_DUMMY_ID is the highest ID, adding one to be able to use it exactly */
 	result = doca_flow_cfg_set_nr_shared_resource(flow_cfg,
-						      DECRYPT_DUMMY_ID + 1,
+#ifdef MLX5DV_HWS
+						      MAX_NB_RULES * 2, /* for both encrypt and decrypt */
+#else
+						      DECRYPT_DUMMY_ID + 1, /* DECRYPT_DUMMY_ID is the highest ID */
+#endif
 						      DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_cfg nr_shared_resources: %s", doca_error_get_descr(result));
@@ -359,6 +368,7 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 	match_mask.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
 
 	fwd.type = DOCA_FLOW_FWD_RSS;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
 	rss_queues = (uint16_t *)calloc(nb_queues - 1, sizeof(uint16_t));
 	if (rss_queues == NULL) {
 		DOCA_LOG_ERR("Failed to allocate memory for RSS queues");
@@ -367,8 +377,8 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 
 	for (i = 0; i < nb_queues - 1; i++)
 		rss_queues[i] = i + 1;
-	fwd.rss_queues = rss_queues;
-	fwd.num_of_queues = nb_queues - 1;
+	fwd.rss.queues_array = rss_queues;
+	fwd.rss.nr_queues = nb_queues - 1;
 
 	result = doca_flow_pipe_cfg_create(&pipe_cfg, port);
 	if (result != DOCA_SUCCESS) {
@@ -476,13 +486,14 @@ void create_hairpin_pipe_fwd(struct ipsec_security_gw_config *app_cfg,
 				rss_queues[i] = i + 1;
 
 			fwd->type = DOCA_FLOW_FWD_RSS;
+			fwd->rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
 			if (!encrypt && app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL)
-				fwd->rss_inner_flags = rss_flags;
+				fwd->rss.inner_flags = rss_flags;
 			else
-				fwd->rss_outer_flags = rss_flags;
+				fwd->rss.outer_flags = rss_flags;
 
-			fwd->rss_queues = rss_queues;
-			fwd->num_of_queues = nb_queues - 1;
+			fwd->rss.queues_array = rss_queues;
+			fwd->rss.nr_queues = nb_queues - 1;
 		}
 	} else {
 		if (app_cfg->flow_mode == IPSEC_SECURITY_GW_SWITCH) {

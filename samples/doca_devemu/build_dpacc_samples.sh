@@ -45,14 +45,13 @@ DOCA_INCLUDE_DIR=$3
 DPA_KERNELS_DEVICE_SRC=$4
 SAMPLE_NAME=$5
 SAMPLE_PROGRAM_NAME=$6
-DPA_TARGET_DEVICE=$7
+DPACC_MCPU_FLAG=$7
 
 # DOCA Configurations
 DOCA_DPACC="/opt/mellanox/doca/tools/dpacc"
 
 HOST_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_ALLOW_EXPERIMENTAL_API"
 DEVICE_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_DEV_ALLOW_EXPERIMENTAL_API"
-MCPU_FLAG="nv-dpa-${DPA_TARGET_DEVICE}"
 
 # DOCA DPA APP Configuration
 # This variable name passed to DPACC with --app-name parameter and it's token must be identical to the
@@ -73,12 +72,11 @@ mkdir -p ${SAMPLE_DEVICE_BUILD_DIR}
 # Compile the DPA (kernel) device source code using the DPACC
 $DOCA_DPACC $DPA_KERNELS_DEVICE_SRC \
 	-o ${SAMPLE_DEVICE_BUILD_DIR}/${SAMPLE_PROGRAM_NAME}.a \
-	-mcpu=${MCPU_FLAG} \
+	-mcpu=${DPACC_MCPU_FLAG} \
 	-hostcc=gcc \
 	-hostcc-options="${HOST_CC_FLAGS}" \
 	--devicecc-options="${DEVICE_CC_FLAGS}" \
 	--app-name="${DPA_APP_NAME}" \
-	-device-libs="-L${DOCA_LIB_DIR} -ldoca_dpa_dev_comm" \
-	-ldpa \
+	-device-libs="-L${DOCA_LIB_DIR} -ldoca_dpa_dev -ldoca_dpa_dev_comm" \
 	-flto \
 	-I${DOCA_INCLUDE_DIR}

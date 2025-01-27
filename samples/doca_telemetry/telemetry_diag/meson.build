@@ -26,14 +26,14 @@ project('DOCA_SAMPLE', 'C', 'CPP',
 	# Get version number from file.
 	version: run_command(find_program('cat'),
 		files('../../../VERSION'), check: true).stdout().strip(),
-	license: 'Proprietary',
+	license: 'BSD-3',
 	default_options: ['buildtype=debug'],
 	meson_version: '>= 0.61.2'
 )
 
 SAMPLE_NAME = 'telemetry_diag'
 
-json_c_dependency = dependency('json-c', required: false)
+json_c_dependency = dependency('json-c', required: false, version : '> 0.13') # earlier versions have different function signatures
 if not json_c_dependency.found()
 	error('Stopping compilation of DOCA Sample - @0@ - Missing json-c support.'.format(SAMPLE_NAME))
 endif

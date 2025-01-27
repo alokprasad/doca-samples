@@ -90,14 +90,12 @@ doca_error_t netscan_get(const char *dma_device_name,
 			doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_REMOTE_PORT),
 			doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_STATE));
 		if (os_type == DOCA_APSH_SYSTEM_LINUX) {
-			DOCA_LOG_INFO("\tConnection %d  -  FD: %u, family: %s, type: %s, filter %s, namespace: %u",
+			DOCA_LOG_INFO("\tConnection %d  -  FD: %u, family: %s, type: %s, filter %s",
 				      i,
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FD),
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FAMILY),
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_TYPE),
-				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FILTER),
-				      doca_apsh_netscan_info_get(connections[i],
-								 DOCA_APSH_NETSCAN_LINUX_NET_NAMESPACE));
+				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FILTER));
 		}
 		if (os_type == DOCA_APSH_SYSTEM_LINUX &&
 		    !strcmp(doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_PROTOCOL), "TCP")) {

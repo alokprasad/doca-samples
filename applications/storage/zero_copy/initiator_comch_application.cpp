@@ -44,6 +44,7 @@
 #include <doca_mmap.h>
 #include <doca_pe.h>
 
+#include <storage_common/aligned_new.hpp>
 #include <storage_common/doca_utils.hpp>
 #include <storage_common/posix_utils.hpp>
 
@@ -750,7 +751,8 @@ void thread_hot_data::non_validated_test(void)
 	}
 
 	/* submit initial tasks */
-	for (uint32_t ii = 0; ii != transactions_size; ++ii)
+	auto const initial_task_count = std::min(transactions_size, remaining_tx_ops);
+	for (uint32_t ii = 0; ii != initial_task_count; ++ii)
 		start_transaction(transactions[ii], std::chrono::steady_clock::now());
 
 	/* run until the test completes */
@@ -1082,12 +1084,12 @@ thread_context::thread_context(initiator_comch_application::configuration const 
 	if (raw_io_messages == nullptr) {
 		throw std::runtime_error{"Failed to allocate comch fast path buffers memory"};
 	}
-	hot_context.transactions = static_cast<transaction_context *>(
-		aligned_alloc(std::alignment_of<transaction_context>::value,
-			      hot_context.transactions_size * sizeof(transaction_context)));
 
-	if (hot_context.transactions == nullptr) {
-		throw std::runtime_error{"Failed to allocate transaction contexts memory"};
+	try {
+		hot_context.transactions = storage::common::make_aligned<transaction_context>{}.object_array(
+			hot_context.transactions_size);
+	} catch (std::exception const &ex) {
+		throw std::runtime_error{"Failed to allocate transaction contexts memory: "s + ex.what()};
 	}
 
 	DOCA_LOG_DBG("Create hot path progress engine");
@@ -1394,7 +1396,14 @@ bool initiator_comch_application_impl::run(void)
 			throw std::runtime_error{"Unknown operation: \"" + m_cfg.operation_type + "\""};
 		}
 
-		storage::common::set_thread_affinity(m_thread_contexts[ii].thread, m_cfg.cpu_set[ii]);
+		try {
+			storage::common::set_thread_affinity(m_thread_contexts[ii].thread, m_cfg.cpu_set[ii]);
+		} catch (std::exception const &) {
+			m_thread_contexts[ii].hot_context.abort("Failed to set affinity for thread to core: "s +
+								std::to_string(m_cfg.cpu_set[ii]));
+			m_thread_contexts[ii].hot_context.run_flag = false;
+			throw;
+		}
 	}
 
 	if (m_abort_flag)
@@ -1770,15 +1779,13 @@ void initiator_comch_application_impl::configure_storage(void)
  */
 void initiator_comch_application_impl::prepare_data_path(void)
 {
-	m_thread_contexts = static_cast<thread_context *>(
-		aligned_alloc(std::alignment_of<thread_context>::value, sizeof(thread_context) * m_cfg.cpu_set.size()));
-	if (m_thread_contexts == nullptr) {
-		throw std::runtime_error{"Failed to allocate thread contexts"};
-	}
-
-	for (uint32_t ii = 0; ii != m_cfg.cpu_set.size(); ++ii) {
-		static_cast<void>(new (std::addressof(m_thread_contexts[ii]))
-					  thread_context{m_cfg, m_dev, m_comch_conn});
+	try {
+		m_thread_contexts = storage::common::make_aligned<thread_context>{}.object_array(m_cfg.cpu_set.size(),
+												 m_cfg,
+												 m_dev,
+												 m_comch_conn);
+	} catch (std::exception const &ex) {
+		throw std::runtime_error{"Failed to allocate thread contexts: "s + ex.what()};
 	}
 
 	m_remote_consumer_ids.reserve(m_cfg.cpu_set.size());
@@ -1873,7 +1880,8 @@ void initiator_comch_application_impl::stop_storage(void)
  * @cfg [in]: Application configuration
  * @return: Application instance
  */
-initiator_comch_application *make_host_application(initiator_comch_application::configuration const &cfg)
+initiator_comch_application *make_initiator_comch_application(
+	const storage::zero_copy::initiator_comch_application::configuration &cfg)
 {
 	return new initiator_comch_application_impl{cfg};
 }

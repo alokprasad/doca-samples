@@ -41,6 +41,7 @@
 #include <doca_pe.h>
 #include <doca_rdma.h>
 
+#include <storage_common/aligned_new.hpp>
 #include <storage_common/buffer_utils.hpp>
 #include <storage_common/definitions.hpp>
 #include <storage_common/doca_utils.hpp>
@@ -728,28 +729,23 @@ thread_context::thread_context(target_rdma_application_impl *app_impl_,
 	  data_tasks{},
 	  thread{}
 {
-	hot_data = static_cast<thread_hot_data *>(
-		aligned_alloc(std::alignment_of<thread_hot_data>::value, sizeof(thread_hot_data)));
-	if (hot_data == nullptr) {
-		throw std::bad_alloc{};
+	try {
+		hot_data = storage::common::make_aligned<thread_hot_data>{}.object();
+	} catch (std::exception const &ex) {
+		throw std::runtime_error{"Failed to allocate thread context hot data: "s + ex.what()};
 	}
 
-	/* Call constructor(thread_hot_data) of hot_data using placement new */
-	new (hot_data) thread_hot_data{};
 	hot_data->id = thread_id;
 	hot_data->app_impl = app_impl_;
-	hot_data->transfer_contexts =
-		static_cast<transfer_context *>(aligned_alloc(std::alignment_of<transfer_context>::value,
-							      sizeof(transfer_context) * runtime_task_count_));
-	if (hot_data->transfer_contexts == nullptr) {
-		free(hot_data);
-		throw std::bad_alloc{};
+
+	try {
+		hot_data->transfer_contexts =
+			storage::common::make_aligned<transfer_context>{}.object_array(runtime_task_count_);
+	} catch (std::exception const &ex) {
+		throw std::runtime_error{"Failed to allocate thread context transfer contexts: "s + ex.what()};
 	}
 
-	/* Call constructor(transfer_context) of hot_data->transfer_contexts[ii] using placement new */
 	hot_data->transfer_contexts_size = runtime_task_count_;
-	for (uint32_t ii = 0; ii != hot_data->transfer_contexts_size; ++ii)
-		new (hot_data->transfer_contexts + ii) transfer_context{};
 }
 
 /*
@@ -1248,8 +1244,16 @@ void target_rdma_application_impl::run(void)
 		for (auto &thread_context : m_thread_contexts) {
 			thread_context->create_and_submit_tasks();
 			thread_context->thread = std::thread{thread_proc_catch_wrapper, std::weak_ptr{thread_context}};
-			storage::common::set_thread_affinity(thread_context->thread,
-							     m_cfg.cpu_set[thread_context->thread_id]);
+			try {
+				storage::common::set_thread_affinity(thread_context->thread,
+								     m_cfg.cpu_set[thread_context->thread_id]);
+			} catch (std::exception const &) {
+				thread_context->abort("Failed to set affinity for thread to core: "s +
+						      std::to_string(m_cfg.cpu_set[thread_context->thread_id]));
+				thread_context->hot_data->running_flag = false;
+				thread_context->hot_data->wait_flag = false;
+				throw;
+			}
 		}
 
 		/* start worker threads */
@@ -1475,7 +1479,7 @@ void target_rdma_application_impl::destroy_objects(void)
 
 } /* namespace */
 
-storage::zero_copy::target_rdma_application *make_storage_application(
+storage::zero_copy::target_rdma_application *make_target_rdma_application(
 	storage::zero_copy::target_rdma_application::configuration const &cfg)
 {
 	return new target_rdma_application_impl{cfg};

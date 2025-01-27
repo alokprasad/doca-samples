@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2022-2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -53,7 +53,7 @@ doca_error_t init_flow_switch_dpdk(int argc, char **dpdk_argv)
 /*
  * Get DOCA Flow switch device PCI
  *
- * @param [in]: input paramete
+ * @param [in]: input parameter
  * @config [out]: configuration context
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
@@ -61,6 +61,11 @@ static doca_error_t param_flow_switch_pci_callback(void *param, void *config)
 {
 	struct flow_switch_ctx *ctx = (struct flow_switch_ctx *)config;
 	char *n = (char *)param;
+
+	if (FLOW_SWITCH_PORTS_MAX <= ctx->nb_ports) {
+		DOCA_LOG_ERR("Encountered too many PCI devices, maximal amount is: %d", FLOW_SWITCH_PORTS_MAX);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
 
 	ctx->dev_arg[ctx->nb_ports++] = n;
 
@@ -70,7 +75,7 @@ static doca_error_t param_flow_switch_pci_callback(void *param, void *config)
 /*
  * Get DOCA Flow switch device representor
  *
- * @param [in]: input paramete
+ * @param [in]: input parameter
  * @config [out]: configuration context
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
@@ -78,6 +83,12 @@ static doca_error_t param_flow_switch_rep_callback(void *param, void *config)
 {
 	struct flow_switch_ctx *ctx = (struct flow_switch_ctx *)config;
 	char *n = (char *)param;
+
+	if (FLOW_SWITCH_PORTS_MAX <= ctx->nb_reps) {
+		DOCA_LOG_ERR("Encountered too many PCI devices representors, maximal amount is: %d",
+			     FLOW_SWITCH_PORTS_MAX);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
 
 	ctx->rep_arg[ctx->nb_reps++] = n;
 
@@ -87,7 +98,7 @@ static doca_error_t param_flow_switch_rep_callback(void *param, void *config)
 /*
  * Get DOCA Flow switch mode
  *
- * @param [in]: input paramete
+ * @param [in]: input parameter
  * @config [out]: configuration context
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */

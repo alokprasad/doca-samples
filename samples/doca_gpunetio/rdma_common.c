@@ -28,8 +28,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#include <rte_ethdev.h>
-
 #include <doca_log.h>
 #include <doca_error.h>
 #include <doca_argp.h>
@@ -304,9 +302,6 @@ doca_error_t create_rdma_resources(struct rdma_config *cfg,
 {
 	union doca_data ctx_user_data = {0};
 	doca_error_t result, tmp_result;
-	int ret;
-	/* The --in-memory option allows to run DPDK in non-privileged mode */
-	char *eal_param[4] = {"", "-a", "00:00.0", "--in-memory"};
 
 	resources->cfg = cfg;
 
@@ -318,12 +313,6 @@ doca_error_t create_rdma_resources(struct rdma_config *cfg,
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to open DOCA device: %s", doca_error_get_descr(result));
 		return result;
-	}
-
-	ret = rte_eal_init(4, eal_param);
-	if (ret < 0) {
-		DOCA_LOG_ERR("DPDK init failed: %d", ret);
-		return DOCA_ERROR_DRIVER;
 	}
 
 	/* Create DOCA GPU */

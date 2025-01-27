@@ -385,6 +385,26 @@ static doca_error_t parse_fwd_type(const char *fwd_str, enum doca_flow_fwd_type 
 }
 
 /*
+ * Parse forward rss type
+ *
+ * @rss_type_str [in]: String to parse from
+ * @fwd [out]: Forward RSS type
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t parse_fwd_rss_type(const char *rss_type_str, enum doca_flow_resource_type *type)
+{
+	if (strcmp(rss_type_str, "shared") == 0)
+		*type = DOCA_FLOW_RESOURCE_TYPE_SHARED;
+	else if (strcmp(rss_type_str, "immediate") == 0)
+		*type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	else {
+		DOCA_LOG_ERR("FWD rss type %s is not supported", rss_type_str);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+	return DOCA_SUCCESS;
+}
+
+/*
  * Parse pipe type
  *
  * @pipe_type [in]: String to parse from
@@ -623,18 +643,22 @@ static doca_error_t parse_fwd_field(char *field_name, char *value, void *struct_
 		result = parse_fwd_type(value, &fwd->type);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} else if (strcmp(field_name, "rss_outer_flags") == 0)
-		fwd->rss_outer_flags = strtol(value, NULL, 0);
-	else if (strcmp(field_name, "rss_inner_flags") == 0)
-		fwd->rss_inner_flags = strtol(value, NULL, 0);
-
-	else if (strcmp(field_name, "rss_queues") == 0) {
-		result = parse_rss_queues(value, fwd->num_of_queues);
+	} else if (strcmp(field_name, "rss_type") == 0) {
+		result = parse_fwd_rss_type(value, &fwd->rss_type);
 		if (result != DOCA_SUCCESS)
 			return result;
-		fwd->rss_queues = rss_queues;
+	} else if (strcmp(field_name, "rss_outer_flags") == 0)
+		fwd->rss.outer_flags = strtol(value, NULL, 0);
+	else if (strcmp(field_name, "rss_inner_flags") == 0)
+		fwd->rss.inner_flags = strtol(value, NULL, 0);
+
+	else if (strcmp(field_name, "rss_queues") == 0) {
+		result = parse_rss_queues(value, fwd->rss.nr_queues);
+		if (result != DOCA_SUCCESS)
+			return result;
+		fwd->rss.queues_array = rss_queues;
 	} else if (strcmp(field_name, "num_of_queues") == 0)
-		fwd->num_of_queues = strtol(value, NULL, 0);
+		fwd->rss.nr_queues = strtol(value, NULL, 0);
 
 	else if (strcmp(field_name, "port_id") == 0)
 		fwd->port_id = strtol(value, NULL, 0);
@@ -666,18 +690,22 @@ static doca_error_t parse_fwd_miss_field(char *field_name, char *value, void *st
 		result = parse_fwd_type(value, &fwd_miss->type);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} else if (strcmp(field_name, "rss_outer_flags") == 0)
-		fwd_miss->rss_outer_flags = strtol(value, NULL, 0);
-	else if (strcmp(field_name, "rss_inner_flags") == 0)
-		fwd_miss->rss_inner_flags = strtol(value, NULL, 0);
-
-	else if (strcmp(field_name, "rss_queues") == 0) {
-		result = parse_rss_queues(value, fwd_miss->num_of_queues);
+	} else if (strcmp(field_name, "rss_type") == 0) {
+		result = parse_fwd_rss_type(value, &fwd_miss->rss_type);
 		if (result != DOCA_SUCCESS)
 			return result;
-		fwd_miss->rss_queues = rss_queues;
+	} else if (strcmp(field_name, "rss_outer_flags") == 0)
+		fwd_miss->rss.outer_flags = strtol(value, NULL, 0);
+	else if (strcmp(field_name, "rss_inner_flags") == 0)
+		fwd_miss->rss.inner_flags = strtol(value, NULL, 0);
+
+	else if (strcmp(field_name, "rss_queues") == 0) {
+		result = parse_rss_queues(value, fwd_miss->rss.nr_queues);
+		if (result != DOCA_SUCCESS)
+			return result;
+		fwd_miss->rss.queues_array = rss_queues;
 	} else if (strcmp(field_name, "num_of_queues") == 0)
-		fwd_miss->num_of_queues = strtol(value, NULL, 0);
+		fwd_miss->rss.nr_queues = strtol(value, NULL, 0);
 
 	else if (strcmp(field_name, "port_id") == 0)
 		fwd_miss->port_id = strtol(value, NULL, 0);

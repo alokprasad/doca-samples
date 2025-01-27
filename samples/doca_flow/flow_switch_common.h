@@ -32,7 +32,7 @@
 #include <doca_dev.h>
 #include <common.h>
 
-#define FLOW_SWITCH_PORTS_MAX (2)
+#define FLOW_SWITCH_PORTS_MAX (128)
 
 /* doca flow switch context */
 struct flow_switch_ctx {

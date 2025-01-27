@@ -195,9 +195,10 @@ static doca_error_t create_udp_pipe(struct rxq_queue *rxq)
 	rss_queues[0] = flow_queue_id;
 
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.rss_queues = rss_queues;
-	fwd.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
-	fwd.num_of_queues = 1;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.queues_array = rss_queues;
+	fwd.rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
+	fwd.rss.nr_queues = 1;
 
 	miss_fwd.type = DOCA_FLOW_FWD_DROP;
 

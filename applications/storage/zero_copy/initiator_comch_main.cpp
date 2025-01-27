@@ -234,6 +234,47 @@ storage::zero_copy::initiator_comch_application::configuration parse_cli_args(in
 	return config;
 }
 
+/*
+ * Signal handler
+ *
+ * @cfg [in]: Configuration
+ */
+void validate_configuration(storage::zero_copy::initiator_comch_application::configuration const &cfg)
+{
+	bool valid_configuration = true;
+
+	if (cfg.buffer_size == 0) {
+		valid_configuration = false;
+		printf("Invalid configuration: buffer-size must not be zero\n");
+	}
+
+	if ((cfg.buffer_size % storage::common::cache_line_size) != 0) {
+		valid_configuration = false;
+		printf("Invalid configuration: buffer-size(%u) must be a multiple of the cache line size(%u) to avoid false sharing\n",
+		       cfg.buffer_size,
+		       storage::common::cache_line_size);
+	}
+
+	if (cfg.buffer_count == 0) {
+		valid_configuration = false;
+		printf("Invalid configuration: per-cpu-buffer-count must not be zero\n");
+	}
+
+	if (cfg.run_limit_operation_count == 0) {
+		valid_configuration = false;
+		printf("Invalid configuration: run-limit-operation-count must not be zero\n");
+	}
+
+	if (cfg.control_timeout.count() == 0) {
+		valid_configuration = false;
+		printf("Invalid configuration: control-timeout must not be zero\n");
+	}
+
+	if (!valid_configuration) {
+		throw std::runtime_error{"Invalid configuration detected"};
+	}
+}
+
 std::unique_ptr<storage::zero_copy::initiator_comch_application> g_app{};
 
 /*
@@ -290,7 +331,8 @@ int main(int argc, char **argv)
 	try {
 		auto const cfg = parse_cli_args(argc, argv);
 		print_config(cfg);
-		g_app.reset(storage::zero_copy::make_host_application(cfg));
+		validate_configuration(cfg);
+		g_app.reset(storage::zero_copy::make_initiator_comch_application(cfg));
 		if (g_app->run()) {
 			auto const stats = g_app->get_stats();
 			auto duration_secs_float = static_cast<double>(stats.duration.count()) /

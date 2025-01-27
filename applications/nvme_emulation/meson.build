@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification, are permitted
 # provided that the following conditions are met:
@@ -199,6 +199,17 @@ foreach dpa_dev_device_lib_name : dpa_dev_device_lib_names
 	dpa_device_link_flags += ' -ldoca_' + dpa_dev_device_lib_name
 endforeach
 
+if not get_option('dpacc_mcpu').contains('nv-dpa-bf3')
+	warning('Skipping compilation of DOCA Application - @0@ - only BF3 compilation is supported.'.format(APP_NAME))
+	subdir_done()
+endif
+
+if get_option('dpacc_mcpu') != 'nv-dpa-bf3'
+	warning('DOCA Application @0@ supports compilation only for BF3 - ignoring other architectures.'.format(APP_NAME))
+endif
+
+nvme_emu_dpacc_mcpu_flag = 'nv-dpa-bf3'
+
 # Invoke device compilation script
 dpa_code = custom_target(
 	device_binary_name,
@@ -207,7 +218,7 @@ dpa_code = custom_target(
 		device_build_script,
 		' '.join(dpa_device_include_flags),
 		'@OUTDIR@',
-		default_dpa_target_device,
+		nvme_emu_dpacc_mcpu_flag,
 		dpa_device_link_flags,
 		dpa_app_name,
 		'@OUTPUT@',

@@ -97,7 +97,7 @@ doca_error_t flow_ct_register_params(void)
 		return result;
 	}
 	doca_argp_param_set_short_name(dev_pci_addr_param, "p");
-	doca_argp_param_set_long_name(dev_pci_addr_param, "pci-addr");
+	doca_argp_param_set_long_name(dev_pci_addr_param, "pci");
 	doca_argp_param_set_description(dev_pci_addr_param, "DOCA Flow CT device PCI address");
 	doca_argp_param_set_callback(dev_pci_addr_param, pci_addr_callback);
 	doca_argp_param_set_type(dev_pci_addr_param, DOCA_ARGP_TYPE_STRING);
@@ -116,7 +116,7 @@ doca_error_t init_doca_flow_ct(uint32_t flags,
 			       uint32_t nb_arm_queues,
 			       uint32_t nb_ctrl_queues,
 			       uint32_t nb_user_actions,
-			       doca_flow_ct_flow_log_cb flow_log_cb,
+			       doca_flow_ct_entry_finalize_cb entry_finalize_cb,
 			       uint32_t nb_ipv4_sessions,
 			       uint32_t nb_ipv6_sessions,
 			       uint32_t dup_filter_sz,
@@ -146,7 +146,7 @@ doca_error_t init_doca_flow_ct(uint32_t flags,
 	ct_cfg.nb_ctrl_queues = nb_ctrl_queues;
 	ct_cfg.nb_user_actions = nb_user_actions;
 	ct_cfg.aging_core = nb_arm_queues + 1;
-	ct_cfg.flow_log_cb = flow_log_cb;
+	ct_cfg.entry_finalize_cb = entry_finalize_cb;
 	ct_cfg.nb_arm_sessions[DOCA_FLOW_CT_SESSION_IPV4] = nb_ipv4_sessions;
 	ct_cfg.nb_arm_sessions[DOCA_FLOW_CT_SESSION_IPV6] = nb_ipv6_sessions;
 	ct_cfg.dup_filter_sz = dup_filter_sz;

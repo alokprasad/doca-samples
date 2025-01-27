@@ -87,6 +87,7 @@ static enum doca_flow_crypto_key_type convert_to_doca_key_type(uint8_t key_type)
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_sa_attrs(struct ipsec_security_gw_ipsec_policy *policy,
+				   enum doca_flow_crypto_icv_len app_icv_len,
 				   struct ipsec_security_gw_sa_attrs *sa_attrs)
 {
 	enum doca_flow_crypto_icv_len icv_length;
@@ -98,7 +99,12 @@ static doca_error_t parse_sa_attrs(struct ipsec_security_gw_ipsec_policy *policy
 	result = convert_to_doca_icv(policy->icv_length, &icv_length);
 	if (result != DOCA_SUCCESS)
 		return result;
-	sa_attrs->icv_length = icv_length;
+	if (icv_length != app_icv_len) {
+		DOCA_LOG_ERR("icv length in policy (%d) does not match application's icv length (%d)",
+			     policy->icv_length,
+			     get_icv_len_int(app_icv_len));
+		return DOCA_ERROR_NOT_SUPPORTED;
+	}
 
 	return DOCA_SUCCESS;
 }
@@ -107,11 +113,13 @@ static doca_error_t parse_sa_attrs(struct ipsec_security_gw_ipsec_policy *policy
  * Parse new ingress policy and populate the encryption rule structure
  *
  * @policy [in]: application IPSEC policy
+ * @app_cfg [in]: application configuration struct
  * @rule [out]: encryption rule structure
  * @ip6_table [out]: store hash value for IPV6 addresses
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t ipsec_security_gw_policy_encrypt_parse(struct ipsec_security_gw_ipsec_policy *policy,
+							   struct ipsec_security_gw_config *app_cfg,
 							   struct encrypt_rule *rule,
 							   struct rte_hash **ip6_table)
 {
@@ -176,7 +184,7 @@ static doca_error_t ipsec_security_gw_policy_encrypt_parse(struct ipsec_security
 		}
 	}
 
-	result = parse_sa_attrs(policy, &rule->sa_attrs);
+	result = parse_sa_attrs(policy, app_cfg->icv_length, &rule->sa_attrs);
 	if (result != DOCA_SUCCESS)
 		return result;
 
@@ -187,18 +195,19 @@ static doca_error_t ipsec_security_gw_policy_encrypt_parse(struct ipsec_security
  * Parse new egress policy and populate the decryption rule structure
  *
  * @policy [in]: application IPSEC policy
- * @mode [in]: application IPSEC mode
+ * @app_cfg [in]: application configuration struct
  * @rule [out]: decryption rule structure
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t ipsec_security_gw_policy_decrypt_parse(struct ipsec_security_gw_ipsec_policy *policy,
-							   enum ipsec_security_gw_mode mode,
+							   struct ipsec_security_gw_config *app_cfg,
 							   struct decrypt_rule *rule)
 {
 	enum doca_flow_l3_type outer_l3_type =
 		(policy->outer_l3_protocol == POLICY_L3_TYPE_IPV4) ? DOCA_FLOW_L3_TYPE_IP4 : DOCA_FLOW_L3_TYPE_IP6;
 	enum doca_flow_l3_type inner_l3_type = (policy->l3_protocol == POLICY_L3_TYPE_IPV4) ? DOCA_FLOW_L3_TYPE_IP4 :
 											      DOCA_FLOW_L3_TYPE_IP6;
+	enum ipsec_security_gw_mode mode = app_cfg->mode;
 	char *dst_ip = NULL;
 	doca_error_t result;
 
@@ -225,7 +234,7 @@ static doca_error_t ipsec_security_gw_policy_decrypt_parse(struct ipsec_security
 
 	rule->esp_spi = policy->spi;
 
-	result = parse_sa_attrs(policy, &rule->sa_attrs);
+	result = parse_sa_attrs(policy, app_cfg->icv_length, &rule->sa_attrs);
 	if (result != DOCA_SUCCESS)
 		return result;
 
@@ -239,7 +248,7 @@ doca_error_t ipsec_security_gw_handle_encrypt_policy(struct ipsec_security_gw_co
 {
 	doca_error_t result;
 
-	result = ipsec_security_gw_policy_encrypt_parse(policy, rule, &app_cfg->ip6_table);
+	result = ipsec_security_gw_policy_encrypt_parse(policy, app_cfg, rule, &app_cfg->ip6_table);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to parse new encryption policy");
 		return result;
@@ -264,7 +273,7 @@ doca_error_t ipsec_security_gw_handle_decrypt_policy(struct ipsec_security_gw_co
 {
 	doca_error_t result;
 
-	result = ipsec_security_gw_policy_decrypt_parse(policy, app_cfg->mode, rule);
+	result = ipsec_security_gw_policy_decrypt_parse(policy, app_cfg, rule);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to parse new decryption policy");
 		return result;

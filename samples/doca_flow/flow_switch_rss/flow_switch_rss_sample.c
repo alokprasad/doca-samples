@@ -226,9 +226,10 @@ static doca_error_t create_rss_pipe(struct doca_flow_port *port, struct doca_flo
 	/* RSS queue - send matched traffic to queue 0  */
 	rss_queues[0] = 0;
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.rss_queues = rss_queues;
-	fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_TCP;
-	fwd.num_of_queues = 1;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.queues_array = rss_queues;
+	fwd.rss.inner_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_TCP;
+	fwd.rss.nr_queues = 1;
 
 	result = doca_flow_pipe_create(pipe_cfg, &fwd, NULL, pipe);
 destroy_pipe_cfg:
@@ -380,14 +381,16 @@ static doca_error_t create_switch_rss_pipe(struct doca_flow_port *port,
 		fwd.type = DOCA_FLOW_FWD_CHANGEABLE;
 	} else if (type == SWITCH_RSS_BASIC_PIPE_DYN_RSS) {
 		fwd.type = DOCA_FLOW_FWD_RSS;
-		fwd.num_of_queues = UINT32_MAX;
+		fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+		fwd.rss.nr_queues = UINT32_MAX;
 	} else {
 		/* RSS queue - send matched traffic to queue 0  */
 		rss_queues[0] = basic_queue_map[dir][type];
 		fwd.type = DOCA_FLOW_FWD_RSS;
-		fwd.rss_queues = rss_queues;
-		fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4;
-		fwd.num_of_queues = 1;
+		fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+		fwd.rss.queues_array = rss_queues;
+		fwd.rss.inner_flags = DOCA_FLOW_RSS_IPV4;
+		fwd.rss.nr_queues = 1;
 	}
 
 	result = doca_flow_pipe_create(pipe_cfg, pfwd, NULL, pipe);
@@ -481,12 +484,10 @@ static doca_error_t create_switch_ingress_pipe(struct doca_flow_port *sw_port, s
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	doca_error_t result;
-	struct doca_flow_fwd fwd_miss;
 
 	memset(&match, 0, sizeof(match));
 	memset(&monitor, 0, sizeof(monitor));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&fwd_miss, 0, sizeof(fwd_miss));
 
 	match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
 	match.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
@@ -497,8 +498,6 @@ static doca_error_t create_switch_ingress_pipe(struct doca_flow_port *sw_port, s
 	/* Port ID to forward to is defined per entry */
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = NULL;
-	fwd_miss.type = DOCA_FLOW_FWD_PIPE;
-	fwd_miss.next_pipe = pipe_rss;
 
 	monitor.counter_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
 
@@ -534,7 +533,7 @@ static doca_error_t create_switch_ingress_pipe(struct doca_flow_port *sw_port, s
 		goto destroy_pipe_cfg;
 	}
 
-	result = doca_flow_pipe_create(pipe_cfg, &fwd, &fwd_miss, pipe);
+	result = doca_flow_pipe_create(pipe_cfg, &fwd, NULL, pipe);
 destroy_pipe_cfg:
 	doca_flow_pipe_cfg_destroy(pipe_cfg);
 	return result;
@@ -826,13 +825,15 @@ static int add_switch_rss_pipe_entries(enum switch_rss_pipe_dir_type dir, struct
 		memset(&fwd, 0, sizeof(fwd));
 		if (entry_index == SWITCH_RSS_BASIC_PIPE_SHARED_RSS) {
 			fwd.type = DOCA_FLOW_FWD_RSS;
+			fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_SHARED;
 			fwd.shared_rss_id = basic_queue_map[dir][entry_index];
 		} else {
 			rss_queues[0] = basic_queue_map[dir][entry_index];
 			fwd.type = DOCA_FLOW_FWD_RSS;
-			fwd.rss_queues = rss_queues;
-			fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4;
-			fwd.num_of_queues = 1;
+			fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+			fwd.rss.queues_array = rss_queues;
+			fwd.rss.inner_flags = DOCA_FLOW_RSS_IPV4;
+			fwd.rss.nr_queues = 1;
 		}
 
 		result = doca_flow_pipe_add_entry(0,
@@ -862,20 +863,14 @@ static int add_switch_rss_pipe_entries(enum switch_rss_pipe_dir_type dir, struct
 			/* RSS queue - send matched traffic to queue 0	*/
 			rss_queues[0] = control_queue_map[dir][entry_index];
 			fwd.type = DOCA_FLOW_FWD_RSS;
-			fwd.rss_queues = rss_queues;
-			fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4;
-			fwd.num_of_queues = 1;
+			fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+			fwd.rss.queues_array = rss_queues;
+			fwd.rss.inner_flags = DOCA_FLOW_RSS_IPV4;
+			fwd.rss.nr_queues = 1;
 		} else if (entry_index == SWITCH_RSS_CONTROL_SHARED_RSS) {
-#ifdef SHARED_RSS_NEW_API
 			fwd.type = DOCA_FLOW_FWD_RSS;
+			fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_SHARED;
 			fwd.shared_rss_id = control_queue_map[dir][entry_index];
-#else
-			rss_queues[0] = control_queue_map[dir][entry_index];
-			fwd.type = DOCA_FLOW_FWD_RSS;
-			fwd.rss_queues = rss_queues;
-			fwd.rss_inner_flags = DOCA_FLOW_RSS_IPV4;
-			fwd.num_of_queues = 1;
-#endif
 		}
 		result = doca_flow_pipe_control_add_entry(0,
 							  entry_index,
@@ -913,6 +908,7 @@ doca_error_t flow_switch_rss(int nb_queues, int nb_ports, struct flow_switch_ctx
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct doca_flow_resource_query query_stats;
 	struct entries_status status;
 	doca_error_t result;
@@ -943,7 +939,8 @@ doca_error_t flow_switch_rss(int nb_queues, int nb_ports, struct flow_switch_ctx
 	/* Doca_dev is opened for proxy_port only */
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
 	dev_arr[0] = doca_dev;
-	result = init_doca_flow_ports(nb_ports, ports, false /* is_hairpin */, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, NB_TOTAL_ENTRIES));
+	result = init_doca_flow_ports(nb_ports, ports, false /* is_hairpin */, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();

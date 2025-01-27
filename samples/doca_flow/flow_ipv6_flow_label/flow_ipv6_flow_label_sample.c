@@ -40,7 +40,11 @@ DOCA_LOG_REGISTER(FLOW_IPV6_FLOW_LABEL);
 
 /* The number of seconds app waits for traffic to come */
 #define WAITING_TIME 10
-
+#define NB_INGRESS_PIPE_ENTRIES (4)
+#define NB_MODIFY_PIPE_ENTRIES (2)
+#define NB_ENCAP_PIPE_ENTRIES (2)
+#define NB_EGRESS_PIPE_ENTRIES (NB_MODIFY_PIPE_ENTRIES + NB_ENCAP_PIPE_ENTRIES)
+#define TOTAL_ENTRIES (NB_INGRESS_PIPE_ENTRIES + NB_EGRESS_PIPE_ENTRIES)
 /*
  * Create DOCA Flow ingress pipe with transport layer match and set pkt meta value.
  *
@@ -507,11 +511,13 @@ static doca_error_t add_modify_pipe_entries(struct doca_flow_pipe *pipe, struct 
  *
  * @pair_port [in]: pointer to the pair port.
  * @pair_port_id [in]: the ID of pair port.
+ * @status [in]: user context for adding entries.
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
-static doca_error_t prepare_egress_pipeline(struct doca_flow_port *pair_port, int pair_port_id)
+static doca_error_t prepare_egress_pipeline(struct doca_flow_port *pair_port,
+					    int pair_port_id,
+					    struct entries_status *status)
 {
-	struct entries_status status = {0};
 	struct doca_flow_pipe *pipe;
 	uint32_t total_entries = 0;
 	uint32_t nb_pipe_entries;
@@ -524,20 +530,22 @@ static doca_error_t prepare_egress_pipeline(struct doca_flow_port *pair_port, in
 	}
 	total_entries += nb_pipe_entries;
 
-	result = add_modify_pipe_entries(pipe, &status);
+	memset(status, 0, sizeof(*status));
+
+	result = add_modify_pipe_entries(pipe, status);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entries to outer updating pipe: %s", doca_error_get_descr(result));
 		return result;
 	}
 
-	result = create_encap_pipe(pair_port, pipe, &status, &nb_pipe_entries);
+	result = create_encap_pipe(pair_port, pipe, status, &nb_pipe_entries);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create encap pipe with entries: %s", doca_error_get_descr(result));
 		return result;
 	}
 	total_entries += nb_pipe_entries;
 
-	result = flow_process_entries(pair_port, &status, total_entries);
+	result = flow_process_entries(pair_port, status, total_entries);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to process egress entries: %s", doca_error_get_descr(result));
 		return result;
@@ -551,21 +559,23 @@ static doca_error_t prepare_egress_pipeline(struct doca_flow_port *pair_port, in
  *
  * @port [in]: pointer to port.
  * @port_id [in]: port ID.
+ * @status [in]: user context for adding entries.
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
-static doca_error_t prepare_ingress_pipeline(struct doca_flow_port *port, int port_id)
+static doca_error_t prepare_ingress_pipeline(struct doca_flow_port *port, int port_id, struct entries_status *status)
 {
-	struct entries_status status = {0};
 	uint32_t num_of_entries;
 	doca_error_t result;
 
-	result = create_ingress_pipe(port, port_id, &status, &num_of_entries);
+	memset(status, 0, sizeof(*status));
+
+	result = create_ingress_pipe(port, port_id, status, &num_of_entries);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create ingress pipe with entries: %s", doca_error_get_descr(result));
 		return result;
 	}
 
-	result = flow_process_entries(port, &status, num_of_entries);
+	result = flow_process_entries(port, status, num_of_entries);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to process ingress entries: %s", doca_error_get_descr(result));
 		return result;
@@ -587,6 +597,9 @@ doca_error_t flow_ipv6_flow_label(int nb_queues)
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
+	struct entries_status egress_status;
+	struct entries_status ingress_status;
 	doca_error_t result;
 	int port_id;
 
@@ -597,7 +610,8 @@ doca_error_t flow_ipv6_flow_label(int nb_queues)
 	}
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
-	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, TOTAL_ENTRIES));
+	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();
@@ -605,7 +619,7 @@ doca_error_t flow_ipv6_flow_label(int nb_queues)
 	}
 
 	for (port_id = 0; port_id < nb_ports; port_id++) {
-		result = prepare_egress_pipeline(ports[port_id ^ 1], port_id ^ 1);
+		result = prepare_egress_pipeline(ports[port_id ^ 1], port_id ^ 1, &egress_status);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to prepare egress pipeline: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -613,7 +627,7 @@ doca_error_t flow_ipv6_flow_label(int nb_queues)
 			return result;
 		}
 
-		result = prepare_ingress_pipeline(ports[port_id], port_id);
+		result = prepare_ingress_pipeline(ports[port_id], port_id, &ingress_status);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to prepare ingress pipeline: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
