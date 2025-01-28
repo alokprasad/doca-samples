@@ -1667,15 +1667,6 @@ doca_error_t PSP_GatewayFlows::ingress_root_pipe_create(void)
 						    nullptr,
 						    &root_default_drop));
 
-	result = doca_flow_entries_process(pf_dev->port_obj,
-					   pipe_queue,
-					   DEFAULT_TIMEOUT_US,
-					   app_config->mode == PSP_GW_MODE_TUNNEL ? 6 : 7);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to process entry: %s", doca_error_get_descr(result));
-		return result;
-	}
-
 	return result;
 }
 

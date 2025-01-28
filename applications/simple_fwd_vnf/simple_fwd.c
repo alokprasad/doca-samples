@@ -816,11 +816,14 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 	struct doca_flow_match match;
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_entry *entry;
+	struct entries_status status;
 	doca_error_t result;
 	uint8_t priority = 0;
+	int nb_entries = 4;
 
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
+	memset(&status, 0, sizeof(status));
 
 	match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
 	match.parser_meta.outer_l4_type = DOCA_FLOW_L4_META_UDP;
@@ -841,7 +844,7 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  NULL,
+						  &status,
 						  &entry);
 	if (result != DOCA_SUCCESS)
 		return -1;
@@ -867,7 +870,7 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  NULL,
+						  &status,
 						  &entry);
 	if (result != DOCA_SUCCESS)
 		return -1;
@@ -894,7 +897,7 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  NULL,
+						  &status,
 						  &entry);
 	if (result != DOCA_SUCCESS)
 		return -1;
@@ -917,10 +920,17 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  NULL,
+						  &status,
 						  &entry);
 	if (result != DOCA_SUCCESS)
 		return -1;
+
+	result = doca_flow_entries_process(simple_fwd_ins->ports[port_cfg->port_id], 0, PULL_TIME_OUT, nb_entries);
+	if (result != DOCA_SUCCESS)
+		return result;
+
+	if (status.nb_processed != nb_entries || status.failure)
+		return DOCA_ERROR_BAD_STATE;
 
 	return 0;
 }
@@ -1038,7 +1048,7 @@ static doca_error_t simple_fwd_add_vxlan_encap_pipe_entry(struct simple_fwd_port
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
-
+	memset(status, 0, sizeof(*status));
 	match.meta.pkt_meta = DOCA_HTOBE32(1);
 
 	SET_MAC_ADDR(actions.encap_cfg.encap.outer.eth.src_mac,

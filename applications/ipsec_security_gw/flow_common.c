@@ -578,6 +578,8 @@ static doca_error_t add_switch_port_meta_entries(struct ipsec_security_gw_ports_
 	memset(&status, 0, sizeof(status));
 	memset(&match, 0, sizeof(match));
 
+	status.entries_in_queue = num_of_entries;
+
 	/* forward the packets from the unsecured port to encryption */
 	match.parser_meta.port_meta = ports[UNSECURED_IDX]->port_id;
 

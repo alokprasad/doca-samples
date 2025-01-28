@@ -662,12 +662,6 @@ static doca_error_t create_marker_encap_pipe(struct doca_flow_port *port,
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg type: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, true);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
 	result = doca_flow_pipe_cfg_set_domain(pipe_cfg, DOCA_FLOW_PIPE_DOMAIN_SECURE_EGRESS);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg domain: %s", doca_error_get_descr(result));
@@ -761,7 +755,7 @@ destroy_pipe_cfg:
  * @port_id [in]: port ID to forward the packet to
  * @expected_entries [in]: expected number of entries
  * @app_cfg [in]: application configuration struct
- * @l3_type [in]: DOCA_FLOW_L3_TYPE_IP4 / DOCA_FLOW_L3_TYPE_IP6
+ * @l3_type [in]: DOCA_FLOW_L3_META_IPV4 / DOCA_FLOW_L3_META_IPV6
  * @pipe_info [out]: pipe info struct
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
@@ -769,7 +763,7 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 					      uint16_t port_id,
 					      int expected_entries,
 					      struct ipsec_security_gw_config *app_cfg,
-					      enum doca_flow_l3_type l3_type,
+					      enum doca_flow_l3_meta l3_type,
 					      struct security_gateway_pipe_info *pipe_info)
 {
 	int nb_actions = 2;
@@ -791,8 +785,8 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 	meta.rule_id = -1;
 	match_mask.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
 	match.meta.pkt_meta = 0xffffffff;
-	match_mask.outer.l3_type = l3_type;
-	match.outer.l3_type = l3_type;
+	match_mask.parser_meta.outer_l3_type = l3_type;
+	match.parser_meta.outer_l3_type = l3_type;
 
 	if (app_cfg->offload == IPSEC_SECURITY_GW_ESP_OFFLOAD_BOTH ||
 	    app_cfg->offload == IPSEC_SECURITY_GW_ESP_OFFLOAD_ENCAP)
@@ -822,14 +816,14 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 		memset(actions_arr[1].crypto_encap.encap_data, 0xff, 70);
 		actions_arr[1].crypto_encap.data_size = 70;
 	} else if (app_cfg->mode == IPSEC_SECURITY_GW_TRANSPORT) {
-		actions.crypto_encap.net_type = (l3_type == DOCA_FLOW_L3_TYPE_IP4) ?
+		actions.crypto_encap.net_type = (l3_type == DOCA_FLOW_L3_META_IPV4) ?
 							DOCA_FLOW_CRYPTO_HEADER_ESP_OVER_IPV4 :
 							DOCA_FLOW_CRYPTO_HEADER_ESP_OVER_IPV6;
 		memset(actions.crypto_encap.encap_data, 0xff, 16);
 		actions.crypto_encap.data_size = 16;
 		actions_arr[0] = actions;
 	} else {
-		actions.crypto_encap.net_type = (l3_type == DOCA_FLOW_L3_TYPE_IP4) ?
+		actions.crypto_encap.net_type = (l3_type == DOCA_FLOW_L3_META_IPV4) ?
 							DOCA_FLOW_CRYPTO_HEADER_UDP_ESP_OVER_IPV4 :
 							DOCA_FLOW_CRYPTO_HEADER_UDP_ESP_OVER_IPV6;
 		memset(actions.crypto_encap.encap_data, 0xff, 24);
@@ -853,12 +847,6 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 	result = doca_flow_pipe_cfg_set_type(pipe_cfg, DOCA_FLOW_PIPE_BASIC);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg type: %s", doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, true);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
 	result = doca_flow_pipe_cfg_set_domain(pipe_cfg, DOCA_FLOW_PIPE_DOMAIN_SECURE_EGRESS);
@@ -2055,7 +2043,7 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
 					   ports[SECURED_IDX]->port_id,
 					   expected_entries,
 					   app_cfg,
-					   DOCA_FLOW_L3_TYPE_IP4,
+					   DOCA_FLOW_L3_META_IPV4,
 					   &app_cfg->encrypt_pipes.ipv4_encrypt_pipe);
 	if (result != DOCA_SUCCESS)
 		return result;
@@ -2065,7 +2053,7 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
 					   ports[SECURED_IDX]->port_id,
 					   expected_entries,
 					   app_cfg,
-					   DOCA_FLOW_L3_TYPE_IP6,
+					   DOCA_FLOW_L3_META_IPV6,
 					   &app_cfg->encrypt_pipes.ipv6_encrypt_pipe);
 	if (result != DOCA_SUCCESS)
 		return result;

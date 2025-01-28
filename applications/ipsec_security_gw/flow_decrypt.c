@@ -773,12 +773,6 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg type: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, true);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
 	result = doca_flow_pipe_cfg_set_domain(pipe_cfg, DOCA_FLOW_PIPE_DOMAIN_SECURE_INGRESS);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg domain: %s", doca_error_get_descr(result));
