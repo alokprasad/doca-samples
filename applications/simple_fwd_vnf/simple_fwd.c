@@ -114,8 +114,11 @@ static void simple_fwd_check_for_valid_entry(struct doca_flow_pipe_entry *entry,
 		simple_fwd_ft_destroy_entry(simple_fwd_ins->ft, ft_entry);
 	} else if (op == DOCA_FLOW_ENTRY_OP_ADD)
 		entry_status->nb_processed++;
-	else if (op == DOCA_FLOW_ENTRY_OP_DEL)
-		free(entry_status);
+	else if (op == DOCA_FLOW_ENTRY_OP_DEL) {
+		entry_status->nb_processed--;
+		if (entry_status->nb_processed == 0)
+			free(entry_status);
+	}
 }
 
 /*
@@ -573,8 +576,6 @@ static int simple_fwd_build_hairpin_flow(uint16_t port_id)
 		return -1;
 	}
 
-	free(status);
-
 	return 0;
 
 destroy_pipe_cfg:
@@ -816,14 +817,17 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 	struct doca_flow_match match;
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_entry *entry;
-	struct entries_status status;
+	struct entries_status *status;
 	doca_error_t result;
 	uint8_t priority = 0;
 	int nb_entries = 4;
 
+	status = (struct entries_status *)calloc(1, sizeof(struct entries_status));
+	if (unlikely(status == NULL))
+		return -1;
+
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&status, 0, sizeof(status));
 
 	match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
 	match.parser_meta.outer_l4_type = DOCA_FLOW_L4_META_UDP;
@@ -844,10 +848,12 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  &status,
+						  status,
 						  &entry);
-	if (result != DOCA_SUCCESS)
+	if (result != DOCA_SUCCESS) {
+		free(status);
 		return -1;
+	}
 
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
@@ -870,10 +876,12 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  &status,
+						  status,
 						  &entry);
-	if (result != DOCA_SUCCESS)
+	if (result != DOCA_SUCCESS) {
+		free(status);
 		return -1;
+	}
 
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
@@ -897,10 +905,12 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  &status,
+						  status,
 						  &entry);
-	if (result != DOCA_SUCCESS)
+	if (result != DOCA_SUCCESS) {
+		free(status);
 		return -1;
+	}
 
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
@@ -920,16 +930,18 @@ static int simple_fwd_add_control_pipe_entries(struct simple_fwd_port_cfg *port_
 						  NULL,
 						  NULL,
 						  &fwd,
-						  &status,
+						  status,
 						  &entry);
-	if (result != DOCA_SUCCESS)
+	if (result != DOCA_SUCCESS) {
+		free(status);
 		return -1;
+	}
 
 	result = doca_flow_entries_process(simple_fwd_ins->ports[port_cfg->port_id], 0, PULL_TIME_OUT, nb_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
 
-	if (status.nb_processed != nb_entries || status.failure)
+	if (status->nb_processed != nb_entries || status->failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return 0;

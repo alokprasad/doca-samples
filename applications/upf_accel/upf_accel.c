@@ -866,7 +866,12 @@ static doca_error_t upf_accel_fp_data_init(struct upf_accel_ctx *ctx, struct upf
 		}
 
 		/* The remainder is distributed among the first cores so that it is almost evenly distributed */
-		num_cntrs = quota_cntrs_per_core_num + (lcore - 1 < quota_cntrs_remainder_num ? 1 : 0);
+		num_cntrs = quota_cntrs_per_core_num;
+		if (quota_cntrs_remainder_num) {
+			num_cntrs++;
+			quota_cntrs_remainder_num--;
+		}
+
 		res = alloc_and_populate_quota_counters_ids(curr_quota_base_cntr_idx,
 							    ctx->num_ports,
 							    num_cntrs,

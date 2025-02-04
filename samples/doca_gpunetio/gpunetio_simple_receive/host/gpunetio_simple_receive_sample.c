@@ -23,7 +23,7 @@
  *
  */
 
-#include <doca_rdma_bridge.h>
+#include <arpa/inet.h>
 #include <doca_flow.h>
 #include <doca_log.h>
 
@@ -173,23 +173,22 @@ static doca_error_t create_udp_pipe(struct rxq_queue *rxq)
 {
 	doca_error_t result;
 	struct doca_flow_match match = {0};
-	struct doca_flow_match match_mask = {0};
 	struct doca_flow_fwd fwd = {0};
 	struct doca_flow_fwd miss_fwd = {0};
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	struct doca_flow_pipe_entry *entry;
-	const char *pipe_name = "GPU_RXQ_UDP_PIPE";
 	uint16_t flow_queue_id;
 	uint16_t rss_queues[1];
 	struct doca_flow_monitor monitor = {
 		.counter_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED,
 	};
+	const char *pipe_name = "GPU_RXQ_UDP_PIPE";
 
 	if (rxq == NULL || df_port == NULL)
 		return DOCA_ERROR_INVALID_VALUE;
 
-	match.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
-	match.outer.l4_type_ext = DOCA_FLOW_L4_TYPE_EXT_UDP;
+	match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
+	match.parser_meta.outer_l4_type = DOCA_FLOW_L4_META_UDP;
 
 	doca_eth_rxq_get_flow_queue_id(rxq->eth_rxq_cpu, &flow_queue_id);
 	rss_queues[0] = flow_queue_id;
@@ -223,13 +222,7 @@ static doca_error_t create_udp_pipe(struct rxq_queue *rxq)
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg is_root: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, true);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
-	result = doca_flow_pipe_cfg_set_match(pipe_cfg, &match, &match_mask);
+	result = doca_flow_pipe_cfg_set_match(pipe_cfg, &match, NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg match: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
@@ -278,18 +271,20 @@ destroy_pipe_cfg:
 static doca_error_t create_root_pipe(struct rxq_queue *rxq)
 {
 	doca_error_t result;
-	struct doca_flow_match match_mask = {0};
 	struct doca_flow_monitor monitor = {
 		.counter_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED,
 	};
+
 	struct doca_flow_match udp_match = {
+		.outer.eth.type = htons(DOCA_FLOW_ETHER_TYPE_IPV4),
 		.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4,
-		.outer.l4_type_ext = DOCA_FLOW_L4_TYPE_EXT_UDP,
+		.outer.ip4.next_proto = IPPROTO_UDP,
 	};
 
 	struct doca_flow_fwd udp_fwd = {
 		.type = DOCA_FLOW_FWD_PIPE,
 	};
+
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	const char *pipe_name = "ROOT_PIPE";
 
@@ -317,17 +312,6 @@ static doca_error_t create_root_pipe(struct rxq_queue *rxq)
 	result = doca_flow_pipe_cfg_set_is_root(pipe_cfg, true);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg is_root: %s", doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
-	result = doca_flow_pipe_cfg_set_enable_strict_matching(pipe_cfg, true);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg enable_strict_matching: %s",
-			     doca_error_get_descr(result));
-		goto destroy_pipe_cfg;
-	}
-	result = doca_flow_pipe_cfg_set_match(pipe_cfg, NULL, &match_mask);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg match: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
 	result = doca_flow_pipe_cfg_set_monitor(pipe_cfg, &monitor);

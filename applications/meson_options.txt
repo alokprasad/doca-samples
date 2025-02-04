@@ -41,7 +41,7 @@ option('enable_pcc_application_np_rx_rate', type: 'boolean', value: false,
 	description: 'Enable PCC application CC rate update via notification point RX bytes.')
 
 # Enable Use of HWS
-option('enable_mlx5dv_hws', type: 'boolean', value: false,
+option('enable_mlx5dv_hws', type: 'boolean', value: true,
 	description: 'Enable HW Steering.')
 
 # gRPC versions

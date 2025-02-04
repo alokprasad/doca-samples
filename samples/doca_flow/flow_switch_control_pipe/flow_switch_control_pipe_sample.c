@@ -133,7 +133,7 @@ static doca_error_t add_control_pipe_entries(struct doca_flow_pipe *control_pipe
  */
 doca_error_t flow_switch_control_pipe(int nb_queues, struct flow_switch_ctx *ctx)
 {
-	int nb_ports = 2;
+	int nb_ports = 3;
 	struct flow_resources resource = {0};
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];

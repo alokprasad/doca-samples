@@ -163,6 +163,8 @@ static void query_encrypt_pipes(struct ipsec_security_gw_config *app_cfg)
 {
 	bool changed = false;
 
+	if (app_cfg->flow_mode == IPSEC_SECURITY_GW_SWITCH)
+		changed |= query_pipe_info(&app_cfg->encrypt_pipes.encrypt_root);
 	changed |= query_pipe_info(&app_cfg->encrypt_pipes.ipv4_tcp_pipe);
 	changed |= query_pipe_info(&app_cfg->encrypt_pipes.ipv4_udp_pipe);
 	changed |= query_pipe_info(&app_cfg->encrypt_pipes.ipv6_tcp_pipe);
