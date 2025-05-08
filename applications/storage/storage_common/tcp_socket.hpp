@@ -33,7 +33,7 @@
 
 #include <storage_common/ip_address.hpp>
 
-namespace storage::common {
+namespace storage {
 
 /*
  * TCP socket helper class
@@ -111,7 +111,7 @@ public:
 	 *
 	 * @address [in]: Address to connect to
 	 */
-	void connect(storage::common::ip_address const &address);
+	void connect(storage::ip_address const &address);
 
 	/*
 	 * Listen for connections on the specified port
@@ -171,6 +171,6 @@ private:
 	void set_socket_options(void);
 };
 
-} /* namespace storage::common */
+} /* namespace storage */
 
 #endif /* APPLICATIONS_STORAGE_STORAGE_COMMON_TCP_SOCKET_HPP_ */

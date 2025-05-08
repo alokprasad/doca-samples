@@ -523,3 +523,84 @@ uint64_t align_down_uint64(uint64_t value, uint64_t alignment)
 {
 	return value - (value % alignment);
 }
+
+doca_error_t allocat_doca_buf_list(struct doca_buf_inventory *buf_inv,
+				   struct doca_mmap *mmap,
+				   void *buf_addr,
+				   size_t buf_len,
+				   int num_buf,
+				   bool set_data_pos,
+				   struct doca_buf **dbuf)
+{
+	int i = 0;
+	size_t other_seg_len = buf_len / num_buf;
+	size_t first_seg_len = other_seg_len + (buf_len % num_buf);
+	doca_error_t result = DOCA_SUCCESS;
+	struct doca_buf *tmp_dbuf = NULL;
+	size_t seg_len = first_seg_len;
+	void *seg_addr = buf_addr;
+
+	if (buf_inv == NULL) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, doca_buf_inventory is NULL: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (mmap == NULL) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, doca_mmap is NULL: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (buf_addr == NULL) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, buf_addr is NULL: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (buf_len == 0) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, buf_len is 0: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (num_buf <= 0) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, num_buf is <= 0: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (dbuf == NULL) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Invalid value found, dbuf is NULL: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	for (i = 0; i < num_buf; i++) {
+		if (i > 0) {
+			seg_addr += seg_len;
+			seg_len = other_seg_len;
+			if (seg_len == 0) {
+				break;
+			}
+		}
+		result = doca_buf_inventory_buf_get_by_addr(buf_inv, mmap, seg_addr, seg_len, &tmp_dbuf);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Unable to acquire DOCA buffer: %s", doca_error_get_descr(result));
+			return result;
+		}
+		if (set_data_pos == true) {
+			result = doca_buf_set_data(tmp_dbuf, seg_addr, seg_len);
+			if (result != DOCA_SUCCESS) {
+				DOCA_LOG_ERR("Failed to set data for DOCA buffer: %s", doca_error_get_descr(result));
+				return result;
+			}
+		}
+		if (i == 0) {
+			*dbuf = tmp_dbuf;
+		} else {
+			result = doca_buf_chain_list(*dbuf, tmp_dbuf);
+			if (result != DOCA_SUCCESS) {
+				DOCA_LOG_ERR("Failed to construct doca_buf chain: %s", doca_error_get_descr(result));
+				return result;
+			}
+		}
+	}
+
+	return result;
+}

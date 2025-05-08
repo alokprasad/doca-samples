@@ -110,37 +110,17 @@ __global__ void cuda_kernel_http_server(uint32_t *exit_cond,
 				}
 
 				if (http_global->page == HTTP_GET_INDEX) {
-					ret = doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_index, doca_gpu_buf_idx, &buf);
-					if (ret != DOCA_SUCCESS) {
-						printf("Error %d doca_gpu_dev_eth_rxq_get_buf block %d thread %d\n", ret, warp_id, lane_id);
-						DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-						break;
-					}
+					doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_index, doca_gpu_buf_idx, &buf);
 					nbytes_page = nbytes_page_index;
 				} else if (http_global->page == HTTP_GET_CONTACTS) {
-					ret = doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_contacts, doca_gpu_buf_idx, &buf);
-					if (ret != DOCA_SUCCESS) {
-						printf("Error %d doca_gpu_dev_eth_rxq_get_buf block %d thread %d\n", ret, warp_id, lane_id);
-						DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-						break;
-					}
+					doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_contacts, doca_gpu_buf_idx, &buf);
 					nbytes_page = nbytes_page_contacts;
 				} else {
-					ret = doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_not_found, doca_gpu_buf_idx, &buf);
-					if (ret != DOCA_SUCCESS) {
-						printf("Error %d doca_gpu_dev_eth_rxq_get_buf block %d thread %d\n", ret, warp_id, lane_id);
-						DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-						break;
-					}
+					doca_gpu_dev_buf_get_buf(buf_arr_gpu_page_not_found, doca_gpu_buf_idx, &buf);
 					nbytes_page = nbytes_page_not_found;
 				}
 
-				ret = doca_gpu_dev_buf_get_addr(buf, &buf_addr);
-				if (ret != DOCA_SUCCESS) {
-					printf("Error %d doca_gpu_dev_eth_rxq_get_buf block %d thread %d\n", ret, warp_id, lane_id);
-					DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-					break;
-				}
+				doca_gpu_dev_buf_get_addr(buf, &buf_addr);
 
 				raw_to_tcp(buf_addr, &hdr, &payload);
 				http_set_mac_addr(hdr, (uint16_t *)http_global->eth_dst_addr_bytes, (uint16_t *)http_global->eth_src_addr_bytes);

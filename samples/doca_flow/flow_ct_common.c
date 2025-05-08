@@ -127,7 +127,7 @@ doca_error_t init_doca_flow_ct(uint32_t flags,
 			       struct doca_flow_meta *r_zone_mask,
 			       struct doca_flow_meta *r_modify_mask)
 {
-	struct doca_flow_ct_cfg ct_cfg;
+	struct doca_flow_ct_cfg *ct_cfg;
 	doca_error_t result;
 
 	if (o_zone_mask == NULL || o_modify_mask == NULL) {
@@ -138,31 +138,28 @@ doca_error_t init_doca_flow_ct(uint32_t flags,
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
-	memset(&ct_cfg, 0, sizeof(ct_cfg));
+	result = doca_flow_ct_cfg_create(&ct_cfg);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create DOCA Flow CT config: %s", doca_error_get_name(result));
+		return result;
+	}
 
-	ct_cfg.flags |= DOCA_FLOW_CT_FLAG_MANAGED;
+	doca_flow_ct_cfg_set_flags(ct_cfg, flags);
+	doca_flow_ct_cfg_set_queues(ct_cfg, nb_arm_queues);
+	doca_flow_ct_cfg_set_ctrl_queues(ct_cfg, nb_ctrl_queues);
+	doca_flow_ct_cfg_set_user_actions(ct_cfg, nb_user_actions);
+	doca_flow_ct_cfg_set_aging_core(ct_cfg, nb_arm_queues + 1);
+	doca_flow_ct_cfg_set_entry_finalize_cb(ct_cfg, entry_finalize_cb);
+	doca_flow_ct_cfg_set_connections(ct_cfg, nb_ipv4_sessions, nb_ipv6_sessions, 0);
+	doca_flow_ct_cfg_set_dup_filter_size(ct_cfg, dup_filter_sz);
+	doca_flow_ct_cfg_set_direction(ct_cfg, false, o_match_inner, o_zone_mask, o_modify_mask);
+	doca_flow_ct_cfg_set_direction(ct_cfg, true, r_match_inner, r_zone_mask, r_modify_mask);
 
-	ct_cfg.nb_arm_queues = nb_arm_queues;
-	ct_cfg.nb_ctrl_queues = nb_ctrl_queues;
-	ct_cfg.nb_user_actions = nb_user_actions;
-	ct_cfg.aging_core = nb_arm_queues + 1;
-	ct_cfg.entry_finalize_cb = entry_finalize_cb;
-	ct_cfg.nb_arm_sessions[DOCA_FLOW_CT_SESSION_IPV4] = nb_ipv4_sessions;
-	ct_cfg.nb_arm_sessions[DOCA_FLOW_CT_SESSION_IPV6] = nb_ipv6_sessions;
-	ct_cfg.dup_filter_sz = dup_filter_sz;
-
-	ct_cfg.direction[0].match_inner = o_match_inner;
-	ct_cfg.direction[0].zone_match_mask = o_zone_mask;
-	ct_cfg.direction[0].meta_modify_mask = o_modify_mask;
-	ct_cfg.direction[1].match_inner = r_match_inner;
-	ct_cfg.direction[1].zone_match_mask = r_zone_mask;
-	ct_cfg.direction[1].meta_modify_mask = r_modify_mask;
-
-	ct_cfg.flags |= flags;
-
-	result = doca_flow_ct_init(&ct_cfg);
+	result = doca_flow_ct_init(ct_cfg);
 	if (result != DOCA_SUCCESS)
 		DOCA_LOG_ERR("Failed to initialize DOCA Flow CT: %s", doca_error_get_name(result));
+
+	doca_flow_ct_cfg_destroy(ct_cfg);
 
 	return result;
 }
@@ -285,6 +282,26 @@ doca_error_t create_ct_root_pipe(struct doca_flow_port *port,
 			DOCA_LOG_ERR("Failed to add root pipe IPv4 entry: %s", doca_error_get_descr(result));
 			return result;
 		}
+
+		match.outer.ip4.dst_ip = 0;
+		match.outer.ip4.src_ip = BE_IPV4_ADDR(1, 1, 1, 1);
+		result = doca_flow_pipe_control_add_entry(0,
+							  1,
+							  *pipe,
+							  &match,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  &fwd,
+							  status,
+							  NULL);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to add root pipe IPv4 entry: %s", doca_error_get_descr(result));
+			return result;
+		}
 	}
 
 	if (is_ipv6) {
@@ -296,7 +313,29 @@ doca_error_t create_ct_root_pipe(struct doca_flow_port *port,
 		match.outer.ip6.dst_ip[1] = 0x01010101;
 		match.outer.ip6.dst_ip[2] = 0x01010101;
 		match.outer.ip6.dst_ip[3] = 0x01010101;
-		match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV6;
+		result = doca_flow_pipe_control_add_entry(0,
+							  1,
+							  *pipe,
+							  &match,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  NULL,
+							  &fwd,
+							  status,
+							  NULL);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to add IPv6 root pipe entry: %s", doca_error_get_descr(result));
+			return result;
+		}
+
+		memset(match.outer.ip6.dst_ip, 0, sizeof(match.outer.ip6.dst_ip));
+		match.outer.ip6.src_ip[0] = 0x01010101;
+		match.outer.ip6.src_ip[1] = 0x01010101;
+		match.outer.ip6.src_ip[2] = 0x01010101;
+		match.outer.ip6.src_ip[3] = 0x01010101;
 		result = doca_flow_pipe_control_add_entry(0,
 							  1,
 							  *pipe,
@@ -346,4 +385,28 @@ doca_error_t create_ct_root_pipe(struct doca_flow_port *port,
 destroy_pipe_cfg:
 	doca_flow_pipe_cfg_destroy(pipe_cfg);
 	return result;
+}
+
+doca_error_t flow_ct_queue_reserve(struct doca_flow_port *port,
+				   uint16_t ct_queue,
+				   struct entries_status *status,
+				   uint32_t room)
+{
+	doca_error_t result;
+
+	if (room == 0)
+		room = CT_DEFAULT_QUEUE_DEPTH;
+	else if (room > CT_DEFAULT_QUEUE_DEPTH) {
+		DOCA_LOG_ERR("Expecting room is bigger than default queue depth");
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	result = doca_flow_ct_entries_process(port, ct_queue, room, room, NULL);
+	if (result != DOCA_SUCCESS)
+		DOCA_LOG_ERR("Failed to process entries: %s", doca_error_get_descr(result));
+	if (status->failure) {
+		DOCA_LOG_ERR("Failed to process entries, status is not success");
+		return DOCA_ERROR_BAD_STATE;
+	}
+	return DOCA_SUCCESS;
 }

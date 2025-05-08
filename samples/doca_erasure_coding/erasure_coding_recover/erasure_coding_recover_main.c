@@ -52,6 +52,8 @@ struct ec_cfg {
 	uint32_t rdnc_block_count;		      /* redundancy block count */
 	size_t n_delete_block;			      /* number of deleted block indices */
 	uint32_t delete_block_indices[MAX_BLOCKS];    /* indices of data blocks to delete */
+	int num_src_buf;			      /* Number of linked_list doca_buf element for the source buffer */
+	int num_dst_buf; /* Number of linked_list doca_buf element for the destination buffer */
 };
 
 /* Sample's Logic */
@@ -63,7 +65,9 @@ doca_error_t ec_recover(const char *pci_addr,
 			uint32_t data_block_count,
 			uint32_t rdnc_block_count,
 			uint32_t *missing_indices,
-			size_t n_missing);
+			size_t n_missing,
+			int num_src_buf,
+			int num_dst_buf);
 
 /*
  * ARGP Callback - Handle PCI device address parameter
@@ -251,6 +255,50 @@ static doca_error_t delete_block_indices_callback(void *param, void *config)
 }
 
 /*
+ * ARGP Callback - Handle number of source doca_buf parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t num_src_buf_callback(void *param, void *config)
+{
+	struct ec_cfg *conf = (struct ec_cfg *)config;
+	const int *num = (int *)param;
+
+	if (*num <= 0) {
+		DOCA_LOG_ERR("Entered number of source doca_buf: %d, valid value must be >= 1", *num);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	conf->num_src_buf = *num;
+
+	return DOCA_SUCCESS;
+}
+
+/*
+ * ARGP Callback - Handle number of destination doca_buf parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t num_dst_buf_callback(void *param, void *config)
+{
+	struct ec_cfg *conf = (struct ec_cfg *)config;
+	const int *num = (int *)param;
+
+	if (*num <= 0) {
+		DOCA_LOG_ERR("Entered number of destination doca_buf: %d, valid value must be >= 1", *num);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	conf->num_dst_buf = *num;
+
+	return DOCA_SUCCESS;
+}
+
+/*
  * Register the command line parameters for the sample.
  *
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
@@ -259,7 +307,8 @@ static doca_error_t register_ec_params(void)
 {
 	doca_error_t result;
 	struct doca_argp_param *pci_param, *input_path_param, *output_path_param, *do_both_param, *matrix_param,
-		*data_block_count_param, *rdnc_block_count_param, *delete_block_indices_param;
+		*data_block_count_param, *rdnc_block_count_param, *delete_block_indices_param, *num_src_buf_param,
+		*num_dst_buf_param;
 
 	result = doca_argp_param_create(&pci_param);
 	if (result != DOCA_SUCCESS) {
@@ -390,6 +439,40 @@ static doca_error_t register_ec_params(void)
 		return result;
 	}
 
+	/* Create and register number of source doca_buf param */
+	result = doca_argp_param_create(&num_src_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(num_src_buf_param, "ns");
+	doca_argp_param_set_long_name(num_src_buf_param, "num-src-buf");
+	doca_argp_param_set_description(num_src_buf_param, "number of doca_buf for source buffer");
+	doca_argp_param_set_callback(num_src_buf_param, num_src_buf_callback);
+	doca_argp_param_set_type(num_src_buf_param, DOCA_ARGP_TYPE_INT);
+	result = doca_argp_register_param(num_src_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	/* Create and register number of destination doca_buf param */
+	result = doca_argp_param_create(&num_dst_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(num_dst_buf_param, "nd");
+	doca_argp_param_set_long_name(num_dst_buf_param, "num-dst-buf");
+	doca_argp_param_set_description(num_dst_buf_param, "number of doca_buf for destination buffer");
+	doca_argp_param_set_callback(num_dst_buf_param, num_dst_buf_callback);
+	doca_argp_param_set_type(num_dst_buf_param, DOCA_ARGP_TYPE_INT);
+	result = doca_argp_register_param(num_dst_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
 	return DOCA_SUCCESS;
 }
 
@@ -437,8 +520,10 @@ int main(int argc, char **argv)
 	ec_cfg.rdnc_block_count = 2; /* redundancy block count */
 	ec_cfg.delete_block_indices[0] = 0;
 	ec_cfg.n_delete_block = 1;
+	ec_cfg.num_dst_buf = 1;
+	ec_cfg.num_src_buf = 1;
 
-	result = doca_argp_init("doca_erasure_coding_recover", &ec_cfg);
+	result = doca_argp_init(NULL, &ec_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;
@@ -464,7 +549,9 @@ int main(int argc, char **argv)
 			    ec_cfg.data_block_count,
 			    ec_cfg.rdnc_block_count,
 			    ec_cfg.delete_block_indices,
-			    ec_cfg.n_delete_block);
+			    ec_cfg.n_delete_block,
+			    ec_cfg.num_src_buf,
+			    ec_cfg.num_dst_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("ec_recover() encountered an error: %s", doca_error_get_descr(result));
 		goto argp_cleanup;

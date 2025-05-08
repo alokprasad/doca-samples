@@ -39,6 +39,7 @@
 
 #define DUP_FILTER_CONN_NUM 512
 #define MAX_PORTS 4
+#define CT_DEFAULT_QUEUE_DEPTH 512
 
 struct ct_config {
 	int n_ports;						     /* Number of ports configured */
@@ -141,5 +142,22 @@ doca_error_t create_ct_root_pipe(struct doca_flow_port *port,
 				 struct doca_flow_pipe *fwd_pipe,
 				 struct entries_status *status,
 				 struct doca_flow_pipe **pipe);
+
+/*
+ * Poll the queue until expected room available.
+ *
+ * Must be called before any entry create/update/destroy.
+ * Must update status->nb_sent after each entry manipulation.
+ *
+ * @port [in] DOCA Flow port structure.
+ * @ct_queue [in] CT queue.
+ * @status [in|out] user context struct provided in entries manipulation.
+ * @room [in] expected room to be available in the queue.
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
+ */
+doca_error_t flow_ct_queue_reserve(struct doca_flow_port *port,
+				   uint16_t ct_queue,
+				   struct entries_status *status,
+				   uint32_t room);
 
 #endif /* FLOW_CT_COMMON_H_ */

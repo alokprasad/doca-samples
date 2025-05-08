@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2023-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -85,11 +85,7 @@ static doca_error_t create_ipsec_decrypt_pipe(struct doca_flow_port *port,
 	if (!app_cfg->sw_antireplay) {
 		actions.crypto.ipsec_sa.sn_en = !app_cfg->sw_antireplay;
 	}
-#ifdef MLX5DV_HWS
 	actions.crypto.crypto_id = UINT32_MAX;
-#else
-	actions.crypto.crypto_id = DECRYPT_DUMMY_ID;
-#endif
 	actions.meta.pkt_meta = 0xffffffff;
 	actions_arr[0] = &actions;
 
@@ -239,8 +235,8 @@ static doca_error_t create_bad_syndrome_pipe(struct ipsec_security_gw_config *ap
 	match_mask.parser_meta.ipsec_syndrome = 0xff;
 	match.parser_meta.ipsec_syndrome = 0xff;
 	/* Anti replay syndrome */
-	match_mask.meta.u32[0] = DOCA_HTOBE32(0xff);
-	match.meta.u32[0] = 0xffffffff;
+	match_mask.parser_meta.ipsec_ar_syndrome = 0xff;
+	match.parser_meta.ipsec_ar_syndrome = 0xff;
 	/* rule index */
 	meta.rule_id = -1;
 	match_mask.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
@@ -339,7 +335,7 @@ static doca_error_t add_bad_syndrome_pipe_entry(struct doca_flow_pipe *pipe,
 	meta.rule_id = rule_id;
 	match.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
 	match.parser_meta.ipsec_syndrome = 1;
-	match.meta.u32[0] = 0;
+	match.parser_meta.ipsec_ar_syndrome = 0;
 
 	actions_meta.decrypt_syndrome = 1;
 	actions_meta.antireplay_syndrome = 0;
@@ -381,7 +377,7 @@ static doca_error_t add_bad_syndrome_pipe_entry(struct doca_flow_pipe *pipe,
 	}
 
 	match.parser_meta.ipsec_syndrome = 0;
-	match.meta.u32[0] = DOCA_HTOBE32(1);
+	match.parser_meta.ipsec_ar_syndrome = 1;
 
 	actions_meta.decrypt_syndrome = 0;
 	actions_meta.antireplay_syndrome = 1;
@@ -402,8 +398,7 @@ static doca_error_t add_bad_syndrome_pipe_entry(struct doca_flow_pipe *pipe,
 		return result;
 	}
 
-	match.meta.u32[0] = DOCA_HTOBE32(2);
-
+	match.parser_meta.ipsec_ar_syndrome = 2;
 	actions_meta.antireplay_syndrome = 2;
 	actions.meta.pkt_meta = DOCA_HTOBE32(actions_meta.u32);
 
@@ -438,7 +433,6 @@ static doca_error_t add_vxlan_decap_pipe_entry(struct doca_flow_port *port,
 					       struct ipsec_security_gw_config *app_cfg)
 {
 	int num_of_entries = 1;
-	struct entries_status status;
 	struct doca_flow_match match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
@@ -446,7 +440,7 @@ static doca_error_t add_vxlan_decap_pipe_entry(struct doca_flow_port *port,
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	if (app_cfg->debug_mode) {
 		pipe->entries_info =
@@ -461,8 +455,15 @@ static doca_error_t add_vxlan_decap_pipe_entry(struct doca_flow_port *port,
 
 	actions.action_idx = 0;
 
-	result =
-		doca_flow_pipe_add_entry(0, pipe->pipe, &match, &actions, NULL, NULL, DOCA_FLOW_NO_WAIT, &status, entry);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe->pipe,
+					  &match,
+					  &actions,
+					  NULL,
+					  NULL,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add ipv4 entry: %s", doca_error_get_descr(result));
 		return result;
@@ -471,7 +472,7 @@ static doca_error_t add_vxlan_decap_pipe_entry(struct doca_flow_port *port,
 	result = doca_flow_entries_process(port, 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
-	if (status.nb_processed != num_of_entries || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return DOCA_SUCCESS;
@@ -601,8 +602,8 @@ static doca_error_t create_ipsec_decap_pipe(struct doca_flow_port *port,
 	match.parser_meta.ipsec_syndrome = 0xff;
 
 	/* anti-replay syndrome */
-	match_mask.meta.u32[0] = DOCA_HTOBE32(0xff);
-	match.meta.u32[0] = 0xffffffff;
+	match_mask.parser_meta.ipsec_ar_syndrome = 0xff;
+	match.parser_meta.ipsec_ar_syndrome = 0xff;
 
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL)
 		meta.inner_ipv6 = 1;
@@ -721,6 +722,7 @@ destroy_pipe_cfg:
 static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct ipsec_security_gw_config *app_cfg)
 {
 	int nb_actions = 1;
+	int num_of_entries = 2;
 	struct doca_flow_match match;
 	struct doca_flow_match match_mask;
 	struct doca_flow_monitor monitor;
@@ -728,7 +730,6 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 	struct doca_flow_actions *actions_list[] = {&actions_arr[0]};
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_cfg *pipe_cfg;
-	struct entries_status status;
 	struct security_gateway_pipe_info *pipe_info = &app_cfg->decrypt_pipes.marker_remove_pipe;
 	struct doca_flow_pipe_entry *entry = NULL;
 	doca_error_t result;
@@ -743,7 +744,7 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 	memset(&monitor, 0, sizeof(monitor));
 	memset(&actions, 0, sizeof(actions));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	match.parser_meta.outer_l3_type = (enum doca_flow_l3_meta)UINT32_MAX;
 	match_mask.parser_meta.outer_l3_type = (enum doca_flow_l3_meta)UINT32_MAX;
@@ -837,7 +838,7 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 					  NULL,
 					  &fwd,
 					  DOCA_FLOW_WAIT_FOR_BATCH,
-					  &status,
+					  &app_cfg->secured_status[0],
 					  &entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add non-ESP marker decap ingress IPv4 entry: %s", doca_error_get_descr(result));
@@ -857,7 +858,7 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 					  NULL,
 					  &fwd,
 					  DOCA_FLOW_NO_WAIT,
-					  &status,
+					  &app_cfg->secured_status[0],
 					  &entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add non-ESP marker decap ingress IPv6 entry: %s", doca_error_get_descr(result));
@@ -868,11 +869,11 @@ static doca_error_t create_marker_decap_pipe(struct doca_flow_port *port, struct
 		pipe_info->entries_info[pipe_info->nb_entries++].entry = entry;
 	}
 
-	result = doca_flow_entries_process(port, 0, DEFAULT_TIMEOUT_US, 2);
+	result = doca_flow_entries_process(port, 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		goto destroy_pipe_cfg;
 
-	if (status.nb_processed != 2 || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		result = DOCA_ERROR_BAD_STATE;
 
 destroy_pipe_cfg:
@@ -947,12 +948,11 @@ static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_
 	struct doca_flow_match match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
-	struct entries_status entries_status;
 	doca_error_t result;
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
-	memset(&entries_status, 0, sizeof(entries_status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	meta.inner_ipv6 = 0;
 	match.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
@@ -973,13 +973,13 @@ static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_
 					  NULL,
 					  NULL,
 					  DOCA_FLOW_NO_WAIT,
-					  &entries_status,
+					  &app_cfg->secured_status[0],
 					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 		return result;
 	}
-	entries_status.entries_in_queue += 1;
+	app_cfg->secured_status[0].entries_in_queue += 1;
 
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL) {
 		meta.inner_ipv6 = 1;
@@ -999,21 +999,20 @@ static doca_error_t add_decap_pipe_entries(struct ipsec_security_gw_config *app_
 						  NULL,
 						  NULL,
 						  DOCA_FLOW_NO_WAIT,
-						  &entries_status,
+						  &app_cfg->secured_status[0],
 						  entry);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
 		}
-		entries_status.entries_in_queue += 1;
+		app_cfg->secured_status[0].entries_in_queue += 1;
 	}
 
 	do {
-		result = process_entries(port, &entries_status, DEFAULT_TIMEOUT_US, 0);
+		result = process_entries(port, &app_cfg->secured_status[0], DEFAULT_TIMEOUT_US, 0);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (entries_status.entries_in_queue > 0);
-
+	} while (app_cfg->secured_status[0].entries_in_queue > 0);
 	return DOCA_SUCCESS;
 }
 
@@ -1247,9 +1246,9 @@ static doca_error_t create_ipsec_decrypt_shared_object(struct ipsec_security_gw_
 
 	memset(&cfg, 0, sizeof(cfg));
 
-	cfg.domain = DOCA_FLOW_PIPE_DOMAIN_SECURE_INGRESS;
 	cfg.ipsec_sa_cfg.icv_len = app_cfg->icv_length;
 	cfg.ipsec_sa_cfg.salt = app_sa_attrs->salt;
+	cfg.ipsec_sa_cfg.implicit_iv = app_sa_attrs->iv;
 	cfg.ipsec_sa_cfg.key_cfg.key_type = app_sa_attrs->key_type;
 	cfg.ipsec_sa_cfg.key_cfg.key = (void *)&app_sa_attrs->enc_key_data;
 	cfg.ipsec_sa_cfg.sn_initial = app_cfg->sn_initial;
@@ -1269,30 +1268,6 @@ static doca_error_t create_ipsec_decrypt_shared_object(struct ipsec_security_gw_
 	return DOCA_SUCCESS;
 }
 
-#ifndef MLX5DV_HWS
-/*
- * Create dummy SA, and config and bind doca flow shared resource with it
- *
- * @cfg [in]: application configuration struct
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t create_ipsec_decrypt_dummy_shared_object(struct ipsec_security_gw_config *cfg)
-{
-	doca_error_t result;
-	struct ipsec_security_gw_sa_attrs dummy_sa_attr = {
-		.key_type = DOCA_FLOW_CRYPTO_KEY_256,
-		.enc_key_data[0] = 0x01,
-		.salt = 0x12345678,
-	};
-
-	result = create_ipsec_decrypt_shared_object(&dummy_sa_attr, cfg, DECRYPT_DUMMY_ID);
-	if (result != DOCA_SUCCESS)
-		return result;
-
-	return DOCA_SUCCESS;
-}
-#endif
-
 doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 			       int rule_id,
 			       struct doca_flow_port *port,
@@ -1302,13 +1277,12 @@ doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 	struct doca_flow_match match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
-	struct entries_status decrypt_status;
 	struct security_gateway_pipe_info *decrypt_pipe;
 	uint32_t flags;
 	doca_error_t result;
 	union security_gateway_pkt_meta meta = {0};
 
-	memset(&decrypt_status, 0, sizeof(decrypt_status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
 
@@ -1351,54 +1325,45 @@ doca_error_t add_decrypt_entry(struct decrypt_rule *rule,
 					  NULL,
 					  NULL,
 					  flags,
-					  &decrypt_status,
+					  &app_cfg->secured_status[0],
 					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 		return result;
 	}
-	decrypt_status.entries_in_queue++;
+	app_cfg->secured_status[0].entries_in_queue++;
 
 	if (app_cfg->debug_mode) {
 		result = add_bad_syndrome_pipe_entry(app_cfg->decrypt_pipes.bad_syndrome_pipe.pipe,
 						     rule,
 						     rule_id,
-						     &decrypt_status,
+						     &app_cfg->secured_status[0],
 						     DOCA_FLOW_NO_WAIT,
 						     0);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
 		}
-		decrypt_status.entries_in_queue += NUM_OF_SYNDROMES;
+		app_cfg->secured_status[0].entries_in_queue += NUM_OF_SYNDROMES;
 	}
 
 	/* process the entries in the decryption pipe*/
 	do {
-		result = process_entries(port, &decrypt_status, DEFAULT_TIMEOUT_US, 0);
+		result = process_entries(port, &app_cfg->secured_status[0], DEFAULT_TIMEOUT_US, 0);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (decrypt_status.entries_in_queue > 0);
+	} while (app_cfg->secured_status[0].entries_in_queue > 0);
 	return DOCA_SUCCESS;
 }
 
-/*
- * Bind decrypt IDs to the secure port
- *
- * @nb_rules [in]: number of decrypt rules
- * @initial_id [in]: initial ID for the decrypt IDs (number of encrypt IDs)
- * @port [in]: secure port pointer
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_flow_port *port)
+doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_flow_port *port)
 {
 	doca_error_t result;
 	int i, array_len = nb_rules;
 	uint32_t *res_array;
 
-#ifndef MLX5DV_HWS
-	array_len++;
-#endif
+	if (array_len == 0)
+		return DOCA_SUCCESS;
 	res_array = (uint32_t *)malloc(array_len * sizeof(uint32_t));
 	if (res_array == NULL) {
 		DOCA_LOG_ERR("Failed to allocate ids array");
@@ -1408,9 +1373,6 @@ static doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_f
 	for (i = 0; i < nb_rules; i++) {
 		res_array[i] = initial_id + i;
 	}
-#ifndef MLX5DV_HWS
-	res_array[nb_rules] = DECRYPT_DUMMY_ID;
-#endif
 	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, array_len, port);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to bind decrypt IDs to the port");
@@ -1431,7 +1393,6 @@ doca_error_t add_decrypt_entries(struct ipsec_security_gw_config *app_cfg,
 	struct doca_flow_match decrypt_match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
-	struct entries_status decrypt_status;
 	struct security_gateway_pipe_info *decrypt_pipe;
 	struct doca_flow_port *secured_port;
 	enum doca_flow_flags_type flags;
@@ -1449,13 +1410,13 @@ doca_error_t add_decrypt_entries(struct ipsec_security_gw_config *app_cfg,
 		secured_port = doca_flow_port_switch_get(NULL);
 	}
 
-	memset(&decrypt_status, 0, sizeof(decrypt_status));
+	memset(&app_cfg->secured_status[queue_id], 0, sizeof(app_cfg->secured_status[queue_id]));
 	memset(&decrypt_match, 0, sizeof(decrypt_match));
 	memset(&actions, 0, sizeof(actions));
 
 	for (i = 0; i < nb_rules; i++) {
 		rule_id = rule_offset + i;
-		if (i == nb_rules - 1 || decrypt_status.entries_in_queue == QUEUE_DEPTH - 8)
+		if (i == nb_rules - 1 || app_cfg->secured_status[queue_id].entries_in_queue == QUEUE_DEPTH - 8)
 			flags = DOCA_FLOW_NO_WAIT;
 		else
 			flags = DOCA_FLOW_WAIT_FOR_BATCH;
@@ -1502,37 +1463,38 @@ doca_error_t add_decrypt_entries(struct ipsec_security_gw_config *app_cfg,
 						  NULL,
 						  NULL,
 						  decrypt_flags,
-						  &decrypt_status,
+						  &app_cfg->secured_status[queue_id],
 						  entry);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
 		}
-		decrypt_status.entries_in_queue++;
+		app_cfg->secured_status[queue_id].entries_in_queue++;
 
 		if (app_cfg->debug_mode) {
 			result = add_bad_syndrome_pipe_entry(pipes->bad_syndrome_pipe.pipe,
 							     &rules[rule_id],
 							     rule_id,
-							     &decrypt_status,
+							     &app_cfg->secured_status[queue_id],
 							     flags,
 							     queue_id);
 			if (result != DOCA_SUCCESS) {
 				DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 				return result;
 			}
-			decrypt_status.entries_in_queue += NUM_OF_SYNDROMES;
+			app_cfg->secured_status[queue_id].entries_in_queue += NUM_OF_SYNDROMES;
 		}
-		if (decrypt_status.entries_in_queue >= QUEUE_DEPTH - 8) {
+		if (app_cfg->secured_status[queue_id].entries_in_queue >= QUEUE_DEPTH - 8) {
 			result = doca_flow_entries_process(secured_port,
 							   queue_id,
 							   DEFAULT_TIMEOUT_US,
-							   decrypt_status.entries_in_queue);
+							   app_cfg->secured_status[queue_id].entries_in_queue);
 			if (result != DOCA_SUCCESS) {
 				DOCA_LOG_ERR("Failed to process entries: %s", doca_error_get_descr(result));
 				return result;
 			}
-			if (decrypt_status.failure || decrypt_status.entries_in_queue == QUEUE_DEPTH) {
+			if (app_cfg->secured_status[queue_id].failure ||
+			    app_cfg->secured_status[queue_id].entries_in_queue == QUEUE_DEPTH) {
 				DOCA_LOG_ERR("Failed to process entries");
 				return DOCA_ERROR_BAD_STATE;
 			}
@@ -1541,10 +1503,11 @@ doca_error_t add_decrypt_entries(struct ipsec_security_gw_config *app_cfg,
 
 	/* process the entries in the decryption pipe*/
 	do {
-		result = process_entries(secured_port, &decrypt_status, DEFAULT_TIMEOUT_US, queue_id);
+		result =
+			process_entries(secured_port, &app_cfg->secured_status[queue_id], DEFAULT_TIMEOUT_US, queue_id);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (decrypt_status.entries_in_queue > 0);
+	} while (app_cfg->secured_status[queue_id].entries_in_queue > 0);
 	return DOCA_SUCCESS;
 }
 
@@ -1594,15 +1557,6 @@ doca_error_t ipsec_security_gw_insert_decrypt_rules(struct ipsec_security_gw_por
 	if (result != DOCA_SUCCESS)
 		return result;
 
-	DOCA_LOG_DBG("Binding decrypt IDs");
-	result = bind_decrypt_ids(app_cfg->app_rules.nb_decrypt_rules,
-				  app_cfg->app_rules.nb_encrypt_rules,
-				  secured_port);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
-		return result;
-	}
-
 	result = add_decap_pipe_entries(app_cfg,
 					secured_port,
 					&ports[UNSECURED_IDX]->eth_header,
@@ -1611,11 +1565,6 @@ doca_error_t ipsec_security_gw_insert_decrypt_rules(struct ipsec_security_gw_por
 		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
 		return result;
 	}
-#ifndef MLX5DV_HWS
-	result = create_ipsec_decrypt_dummy_shared_object(app_cfg);
-	if (result != DOCA_SUCCESS)
-		return result;
-#endif
 	DOCA_LOG_DBG("Creating IPv4 decrypt pipe");
 	snprintf(app_cfg->decrypt_pipes.decrypt_ipv4_pipe.name, MAX_NAME_LEN, "IPv4_decrypt");
 	result = create_ipsec_decrypt_pipe(secured_port,

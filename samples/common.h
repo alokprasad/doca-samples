@@ -26,8 +26,13 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
-#include <doca_error.h>
+#include <stdbool.h>
+
+#include <doca_buf.h>
+#include <doca_buf_inventory.h>
 #include <doca_dev.h>
+#include <doca_error.h>
+#include <doca_mmap.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -175,6 +180,26 @@ uint64_t align_up_uint64(uint64_t value, uint64_t alignment);
  * @return: aligned value
  */
 uint64_t align_down_uint64(uint64_t value, uint64_t alignment);
+
+/*
+ * Allocate DOCA buf list
+ *
+ * @buf_inv [in]: Doca_buf_inventory instance
+ * @mmap [in]: Mmap instance
+ * @buf_addr [in]: Start address of the data buffer
+ * @buf_len [in]: Byte length of the data buffer
+ * @num_buf [in]: Number of doca_buf to allocate
+ * @set_data_pos [in]: Whether need to set the data position of a doca_buf
+ * @dbuf [out]: The head of allocated doca_buf list
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t allocat_doca_buf_list(struct doca_buf_inventory *buf_inv,
+				   struct doca_mmap *mmap,
+				   void *buf_addr,
+				   size_t buf_len,
+				   int num_buf,
+				   bool set_data_pos,
+				   struct doca_buf **dbuf);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -143,6 +143,15 @@ if flag_enable_grpc_support
 	endif
 endif
 
+# Check for Python plugin
+if flag_enable_grpc_support
+	grpc_py_plugin = find_program('grpc_python_plugin', required: false)
+	if not grpc_py_plugin.found()
+		warning('Failed to find a gRPC Python plugin (grpc_python_plugin) - Disabling gRPC support!')
+		flag_enable_grpc_support = false
+	endif
+endif
+
 # Check for protobuf
 if flag_enable_grpc_support
 	dependency_protobuf = dependency('protobuf', required: false)
@@ -193,6 +202,9 @@ if flag_enable_grpc_support
 	if dependency_grpc.version().version_compare('< 1.28.0')
 		grpc_link_args += ['-lgrpc']
 	endif
+
+	# Hack to force the generation of non-executable generated files
+	python_generator = find_program('cp')
 endif
 
 ################
@@ -238,10 +250,6 @@ endif
 if get_option('enable_cross_compilation_to_dpu')
 	# Please update this folder if the base cross-compilation folder is located elsewhere
 	add_project_arguments('-I/root/doca-cross/usr/include', language: languages)
-endif
-
-if get_option('enable_mlx5dv_hws')
-	add_project_arguments('-D MLX5DV_HWS', language: languages)
 endif
 
 # Resolve irrelevant compiler warnings
@@ -292,6 +300,7 @@ app_list = [
 	    'simple_fwd_vnf',
 	    'sta_offload',
 	    'storage',
+	    'stream_receive_perf',
 	    'switch',
 	    'upf_accel',
 	    'urom_rdmo',

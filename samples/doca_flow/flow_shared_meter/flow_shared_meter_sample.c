@@ -181,7 +181,7 @@ static doca_error_t create_shared_meter_mark_pipe(struct doca_flow_port *port,
 		return result;
 	}
 
-	result = set_flow_pipe_cfg(pipe_cfg, "SHARED_COUNTER_PIPE", DOCA_FLOW_PIPE_BASIC, false);
+	result = set_flow_pipe_cfg(pipe_cfg, "SHARED_METER_PIPE", DOCA_FLOW_PIPE_BASIC, false);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
@@ -384,7 +384,7 @@ doca_error_t flow_shared_meter(int nb_queues)
 	struct doca_flow_pipe *tcp_pipe, *udp_pipe, *pipe, *color_pipe;
 	int port_id;
 	uint32_t shared_meter_ids[] = {0, 1};
-	struct doca_flow_shared_resource_cfg cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT};
+	struct doca_flow_shared_resource_cfg cfg = {0};
 	struct doca_flow_resource_meter_cfg meter_cfg = {0};
 	struct doca_flow_fwd fwd_on_green, fwd_on_red;
 	struct entries_status status;

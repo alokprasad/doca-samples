@@ -31,7 +31,7 @@
 
 using namespace std::string_literals;
 
-namespace storage::common {
+namespace storage {
 
 ip_address::ip_address(std::string address, uint16_t port) : m_addr{std::move(address)}, m_port{port}
 {
@@ -81,4 +81,4 @@ ip_address parse_ip_v4_address(char const *value)
 	throw std::runtime_error{"Invalid ip address: \""s + value + "\""};
 }
 
-} /* namespace storage::common */
+} /* namespace storage */

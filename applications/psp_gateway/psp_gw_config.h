@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -23,8 +23,8 @@
  *
  */
 
-#ifndef _PSP_GW_FLOWS_H_
-#define _PSP_GW_FLOWS_H_
+#ifndef _PSP_GW_CONFIG_H_
+#define _PSP_GW_CONFIG_H_
 
 #include <set>
 #include <string>
@@ -39,9 +39,9 @@
 #include <dpdk_utils.h>
 
 // 0: PSP Header Version 0, AES-GCM-128
-// 1: PSP Header Version 0, AES-GCM-256
-// 2: PSP Header Version 0, AES-GMAC-128
-// 3: PSP Header Version 0, AES-GMAC-256
+// 1: PSP Header Version 1, AES-GCM-256
+// 2: PSP Header Version 2, AES-GMAC-128
+// 3: PSP Header Version 3, AES-GMAC-256
 inline const std::set<uint32_t> SUPPORTED_PSP_VERSIONS = {0, 1};
 static const uint32_t DEFAULT_PSP_VERSION = 1;
 
@@ -79,8 +79,8 @@ typedef uint8_t ipv6_addr_t[IPV6_ADDR_LEN];
 using session_key = std::pair<std::string, std::string> /* src_ip, dst_ip */;
 
 struct ip_pair {
-	doca_flow_ip_addr src_vip; /*!< The source IP address of the traffic flow */
-	doca_flow_ip_addr dst_vip; /*!< The destination IP address of the traffic flow */
+	doca_flow_ip_addr src_vip; /* The source IP address of the traffic flow */
+	doca_flow_ip_addr dst_vip; /* The destination IP address of the traffic flow */
 };
 
 enum psp_gw_mode {
@@ -90,15 +90,15 @@ enum psp_gw_mode {
 
 /**
  * @brief Describes a peer which is capable of exchanging
- *        traffic flows over a PSP tunel.
+ *        traffic flows over a PSP tunnel.
  *
  * Currently, only one PF per peer is supported, but this
  * could be extended to a list of PFs.
  */
 struct psp_gw_peer {
-	uint32_t psp_proto_ver;		/*!< 0 for 128-bit AES-GCM, 1 for 256-bit */
-	std::vector<ip_pair> vip_pairs; /*!< The list of traffic flows to be tunneled */
-	std::string svc_addr;		/*!< control plane gRPC service address */
+	uint32_t psp_proto_ver;		/* 0 for 128-bit AES-GCM, 1 for 256-bit */
+	std::vector<ip_pair> vip_pairs; /* The list of traffic flows to be tunneled */
+	std::string svc_addr;		/* Control plane gRPC service address */
 };
 
 /**
@@ -106,11 +106,20 @@ struct psp_gw_peer {
  *        in a network of PSP tunnel connections.
  */
 struct psp_gw_net_config {
-	std::vector<psp_gw_peer> peers; //!< The list of participating peers and their interfaces
+	std::vector<psp_gw_peer> peers; /* The list of participating peers and their interfaces */
 
-	bool vc_enabled;		//!< Whether Virtualization Cookies shall be included in the PSP headers
-	uint32_t crypt_offset;		//!< The number of words to skip when performing encryption
-	uint32_t default_psp_proto_ver; /*!< 0 for 128-bit AES-GCM, 1 for 256-bit */
+	bool vc_enabled;		/* Whether Virtualization Cookies shall be included in the PSP headers */
+	uint32_t crypt_offset;		/* The number of words to skip when performing encryption */
+	uint32_t default_psp_proto_ver; /* 0 for 128-bit AES-GCM, 1 for 256-bit */
+};
+
+/**
+ * @brief user context struct that will be used in entries process callback
+ */
+struct entries_status {
+	bool failure;	      /* will be set to true if some entry status will not be success */
+	int nb_processed;     /* number of entries that was already processed */
+	int entries_in_queue; /* number of entries in queue that is waiting to process */
 };
 
 /**
@@ -118,23 +127,23 @@ struct psp_gw_net_config {
  *        the local host.
  */
 struct psp_gw_app_config {
-	struct application_dpdk_config dpdk_config; //!< Configuration details of DPDK ports and queues
+	struct application_dpdk_config dpdk_config; /* Configuration details of DPDK ports and queues */
 
-	std::string pf_pcie_addr;    //!< PCI domain:bus:device:function string of the host PF
-	std::string pf_repr_indices; //!< Representor list string, such  as vf0 or pf[0-1]
-	std::string core_mask;	     //!< EAL core mask
+	std::string pf_pcie_addr;    /* PCI domain:bus:device:function string of the host PF */
+	std::string pf_repr_indices; /* Representor list string, such  as vf0 or pf[0-1] */
+	std::string core_mask;	     /* EAL core mask */
 
-	std::string local_svc_addr; //!< The IPv4 addr (and optional port number) of the locally running gRPC service.
-	std::string json_path;	    //!< The path to the JSON file containing the sessions configuration
+	std::string local_svc_addr; /* The IPv4 addr (and optional port number) of the locally running gRPC service */
+	std::string json_path;	    /* The path to the JSON file containing the sessions configuration */
 
-	rte_ether_addr dcap_dmac; //!< The dst mac to apply on decap
+	rte_ether_addr dcap_dmac; /* The dst MAC to apply on decap */
 
-	bool nexthop_enable;	     //!< Whether to override the dmac in the tunnel request with a nexthop mac addr
-	rte_ether_addr nexthop_dmac; //!< The dst mac to apply on encap, if enabled
+	bool nexthop_enable;	     /* Whether to override the dmac in the tunnel request with a nexthop MAC addr */
+	rte_ether_addr nexthop_dmac; /* The dst MAC to apply on encap, if enabled */
 
-	uint32_t max_tunnels; //!< The maximum number of outgoing tunnel connections supported on this host
+	uint32_t max_tunnels; /* The maximum number of outgoing tunnel connections supported on this host */
 
-	struct psp_gw_net_config net_config; //!< List of remote peers supporting PSP connections
+	struct psp_gw_net_config net_config; /* List of remote peers supporting PSP connections */
 
 	/**
 	 * The rate of sampling user packets is controlled by a uint16_t mask.
@@ -150,22 +159,24 @@ struct psp_gw_app_config {
 	 */
 	uint16_t log2_sample_rate;
 
-	uint32_t ingress_sample_meta_indicator; //!< Value to assign pkt_meta when sampling incoming packets
-	uint32_t egress_sample_meta_indicator;	//!< Value to assign pkt_meta when sampling outgoing packets
+	uint32_t ingress_sample_meta_indicator; /* Value to assign pkt_meta when sampling incoming packets */
+	uint32_t egress_sample_meta_indicator;	/* Value to assign pkt_meta when sampling outgoing packets */
+	uint32_t return_to_vf_indicator; /* Value to assign pkt_meta when receiving outgoing ARP and NS packets */
 
-	bool create_tunnels_at_startup; //!< Create PSP tunnels at startup vs. on demand
-	bool show_sampled_packets;	//!< Display to the console any packets marked for sampling
-	bool show_rss_rx_packets;	//!< Display to the console any packets received via RSS
-	bool show_rss_durations;	//!< Display performance information for RSS processing
-	bool disable_ingress_acl;	//!< Allow any ingress packet that successfully decrypts
-	bool debug_keys;		//!< Print the contents of PSP encryption keys to the console
-	bool print_stats;		//!< Print session and pipeline statistics to the console
-	bool maintain_order;		//!< maintain packet ordering when sampling enabled
-	uint16_t print_perf_flags;	//!< Print performance information to the console
-	enum doca_flow_l3_type outer;	//!< Indicate outer tunnel IP type
-	enum doca_flow_l3_type inner;	//!< Indicate inner tunnel IP type
-	struct rte_hash *ip6_table;	//!< Hash table with ipv6 addressess
-	enum psp_gw_mode mode;		//!< Indicate PSP mode
+	bool create_tunnels_at_startup;	    /* Create PSP tunnels at startup vs. on demand */
+	bool show_sampled_packets;	    /* Display to the console any packets marked for sampling */
+	bool show_rss_rx_packets;	    /* Display to the console any packets received via RSS */
+	bool show_rss_durations;	    /* Display performance information for RSS processing */
+	bool disable_ingress_acl;	    /* Allow any ingress packet that successfully decrypts */
+	bool debug_keys;		    /* Print the contents of PSP encryption keys to the console */
+	bool print_stats;		    /* Print session and pipeline statistics to the console */
+	bool maintain_order;		    /* Maintain packet ordering when sampling enabled */
+	uint16_t print_perf_flags;	    /* Print performance information to the console */
+	enum doca_flow_l3_type outer;	    /* Indicate outer tunnel IP type */
+	enum doca_flow_l3_type inner;	    /* Indicate inner tunnel IP type */
+	struct rte_hash *ip6_table;	    /* Hash table with ipv6 addressess */
+	enum psp_gw_mode mode;		    /* Indicate PSP mode */
+	std::vector<entries_status> status; /* Status variable for entries process per queue */
 };
 
 #endif // _PSP_GW_CONFIG_H_

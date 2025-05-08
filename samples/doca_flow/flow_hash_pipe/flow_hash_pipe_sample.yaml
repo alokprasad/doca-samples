@@ -29,7 +29,8 @@ ports_decription:
   port_0: doca_dev
   port_1: doca_rep_dev
   port_2: doca_rep_dev
-description: "This sample uses hash pipe to distribute packets across port representors"
+description: "This sample uses hash pipe to distribute packets across port representors.
+              Sample Command Line: ./build/doca_flow_hash_pipe  -- -l 60 -p 08:00.0 -r sf[0-1]"
 use_cases:
   - name: "Flow hash pipe use case #1"
     args: ""

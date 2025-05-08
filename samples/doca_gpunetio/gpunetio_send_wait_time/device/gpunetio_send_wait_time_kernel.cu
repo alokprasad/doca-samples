@@ -59,11 +59,7 @@ __global__ void send_wait_on_time(struct doca_gpu_eth_txq *eth_txq_gpu, struct d
 		__syncwarp();
 
 		/* All threads in the warp enqueue a different packet (32 packets per burst) */
-		result = doca_gpu_dev_buf_get_buf(buf_arr_gpu, doca_gpu_buf_idx, &buf_ptr);
-		if (result != DOCA_SUCCESS) {
-			printf("Error %d doca gpunetio get doca buf thread %d\n", result, lane_id);
-			DOCA_GPUNETIO_VOLATILE(exit_cond[0]) = 1;
-		}
+		doca_gpu_dev_buf_get_buf(buf_arr_gpu, doca_gpu_buf_idx, &buf_ptr);
 
 		doca_gpu_dev_eth_txq_send_enqueue_strong(eth_txq_gpu, buf_ptr, PACKET_SIZE, 0);
 		__syncwarp();

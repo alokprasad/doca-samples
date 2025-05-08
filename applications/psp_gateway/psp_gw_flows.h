@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -23,20 +23,21 @@
  *
  */
 
-#ifndef FLOWS_H_
-#define FLOWS_H_
+#ifndef _PSP_GW_FLOWS_H_
+#define _PSP_GW_FLOWS_H_
 
 #include <netinet/in.h>
-#include <rte_ether.h>
 #include <string>
 #include <unordered_map>
 
-#include <doca_flow.h>
+#include <rte_ether.h>
+
 #include <doca_dev.h>
+#include <doca_flow.h>
 
 #include "psp_gw_config.h"
 
-static const int NUM_OF_PSP_SYNDROMES = 4; // None, ICV Fail, Bad Trailer
+static const int NUM_OF_PSP_SYNDROMES = 2; // ICV Fail, Bad Trailer
 
 struct psp_gw_app_config;
 
@@ -62,21 +63,21 @@ struct psp_pf_dev {
 struct psp_session_t {
 	rte_ether_addr dst_mac;
 
-	struct doca_flow_ip_addr dst_pip; //!< Physical/Outer IP addr
-	struct doca_flow_ip_addr dst_vip; //!< Virtual/Inner IP addr
-	struct doca_flow_ip_addr src_vip; //!< Virtual/Inner IP addr
+	struct doca_flow_ip_addr dst_pip; /* Physical/Outer IP addr */
+	struct doca_flow_ip_addr dst_vip; /* Virtual/Inner dest IP addr */
+	struct doca_flow_ip_addr src_vip; /* Virtual/Inner src IP addr */
 
-	uint32_t spi_egress;  //!< Security Parameter Index on the wire - host-to-net
-	uint32_t spi_ingress; //!< Security Parameter Index on the wire - net-to-host
-	uint32_t crypto_id;   //!< Internal shared-resource index
+	uint32_t spi_egress;  /* Security Parameter Index on the wire - host-to-net */
+	uint32_t spi_ingress; /* Security Parameter Index on the wire - net-to-host */
+	uint32_t crypto_id;   /* Internal shared-resource index */
 
-	uint32_t psp_proto_ver; //!< PSP protocol version used by this session
-	uint64_t vc;		//!< Virtualization cookie, if enabled
+	uint32_t psp_proto_ver; /* PSP protocol version used by this session */
+	uint64_t vc;		/* Virtualization cookie, if enabled */
 
-	doca_flow_pipe_entry *encap_encrypt_entry;
-	doca_flow_pipe_entry *acl_entry;
-	uint64_t pkt_count_egress;  //!< count of encap_encrypt_entry
-	uint64_t pkt_count_ingress; //!< count of acl_entry
+	doca_flow_pipe_entry *encap_encrypt_entry; /* DOCA Flow encap & encrypt entry */
+	doca_flow_pipe_entry *acl_entry;	   /* DOC AFlow ACL entry */
+	uint64_t pkt_count_egress;		   /* Count of encap_encrypt_entry */
+	uint64_t pkt_count_ingress;		   /* Count of acl_entry */
 };
 
 /**
@@ -102,9 +103,9 @@ public:
 	virtual ~PSP_GatewayFlows(void);
 
 	/**
-	 * Exposes the host PF device. (Used by the benchmarking functions.)
+	 * Exposes the host PF device. (Used by the benchmarking functions)
 	 */
-	psp_pf_dev *pf()
+	psp_pf_dev *pf(void)
 	{
 		return pf_dev;
 	}
@@ -194,12 +195,19 @@ private:
 	doca_error_t start_port(uint16_t port_id, doca_dev *port_dev, doca_flow_port **port);
 
 	/**
-	 * @brief handles the initialization of doca_flow
+	 * @brief handles the initialization DOCA Flow
 	 *
 	 * @app_cfg [in]: the psp app configuration
 	 * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
 	 */
 	doca_error_t init_doca_flow(const psp_gw_app_config *app_cfg);
+
+	/**
+	 * @brief initialization of entries status vector in app_cfg
+	 *
+	 * @app_cfg [in]: the psp app configuration
+	 */
+	void init_status(psp_gw_app_config *app_cfg);
 
 	/**
 	 * @brief handles the binding of the shared resources to ports
@@ -370,6 +378,7 @@ private:
 	 * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
 	 */
 	doca_error_t ingress_inner_classifier_pipe_create(void);
+
 	/**
 	 * @brief Creates a pipe to fwd packets to port
 	 *
@@ -385,7 +394,7 @@ private:
 	doca_error_t fwd_to_rss_pipe_create(void);
 
 	/**
-	 * @brief Creates a pipe that match on random and set sample bit in psp header
+	 * @brief Creates a pipe that match on random and set sample bit in PSP header
 	 *
 	 * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
 	 */
@@ -474,11 +483,15 @@ private:
 	doca_flow_pipe_entry *root_jump_to_egress_ipv6_entry{};
 	doca_flow_pipe_entry *root_jump_to_egress_ipv4_entry{};
 	doca_flow_pipe_entry *vf_arp_to_rss{};
+	doca_flow_pipe_entry *vf_ns_to_rss{};
 	doca_flow_pipe_entry *vf_arp_to_wire{};
 	doca_flow_pipe_entry *uplink_arp_to_vf{};
+	doca_flow_pipe_entry *vf_ns_to_wire{};
+	doca_flow_pipe_entry *uplink_ns_to_vf{};
 	doca_flow_pipe_entry *syndrome_stats_entries[NUM_OF_PSP_SYNDROMES]{};
 	doca_flow_pipe_entry *empty_pipe_entry{};
 	doca_flow_pipe_entry *arp_empty_pipe_entry{};
+	doca_flow_pipe_entry *ns_empty_pipe_entry{};
 	doca_flow_pipe_entry *ipv4_empty_pipe_entry{};
 	doca_flow_pipe_entry *ipv6_empty_pipe_entry{};
 	doca_flow_pipe_entry *root_default_drop{};
@@ -500,4 +513,4 @@ private:
 	uint64_t prev_static_flow_count{UINT64_MAX};
 };
 
-#endif /* FLOWS_H_ */
+#endif /* _PSP_GW_FLOWS_H_ */

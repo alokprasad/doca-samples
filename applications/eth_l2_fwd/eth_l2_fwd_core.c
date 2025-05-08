@@ -769,6 +769,8 @@ doca_error_t eth_l2_fwd_execute(struct eth_l2_fwd_cfg *cfg, struct eth_l2_fwd_re
 						       cfg->max_pkt_size,
 						       cfg->max_burst_size,
 						       ETH_L2_FWD_LOG_MAX_LRO_DEFAULT,
+						       0,
+						       0,
 						       &recommended_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to estimate buffer size: %s", doca_error_get_descr(result));
@@ -897,6 +899,22 @@ doca_error_t eth_l2_fwd_cleanup(struct eth_l2_fwd_resources *state)
 
 	if (state->dev_resrc2.flow_resrc.root_pipe != NULL)
 		doca_flow_pipe_destroy(state->dev_resrc2.flow_resrc.root_pipe);
+
+	if (state->dev_resrc1.flow_resrc.df_port != NULL) {
+		result = doca_flow_port_stop(state->dev_resrc1.flow_resrc.df_port);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to stop DOCA flow port for device 1: %s", doca_error_get_descr(result));
+			return result;
+		}
+	}
+
+	if (state->dev_resrc2.flow_resrc.df_port != NULL) {
+		result = doca_flow_port_stop(state->dev_resrc2.flow_resrc.df_port);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to stop DOCA flow port for device 1: %s", doca_error_get_descr(result));
+			return result;
+		}
+	}
 
 	if (state->dev_resrc1.eth_rxq_ctx != NULL) {
 		result = doca_ctx_stop(state->dev_resrc1.eth_rxq_ctx);
@@ -1061,22 +1079,6 @@ doca_error_t eth_l2_fwd_cleanup(struct eth_l2_fwd_resources *state)
 		result = doca_pe_destroy(state->pe);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to destroy DOCA progress engine: %s", doca_error_get_descr(result));
-			return result;
-		}
-	}
-
-	if (state->dev_resrc1.flow_resrc.df_port != NULL) {
-		result = doca_flow_port_stop(state->dev_resrc1.flow_resrc.df_port);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to stop DOCA flow port for device 1: %s", doca_error_get_descr(result));
-			return result;
-		}
-	}
-
-	if (state->dev_resrc2.flow_resrc.df_port != NULL) {
-		result = doca_flow_port_stop(state->dev_resrc2.flow_resrc.df_port);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to stop DOCA flow port for device 1: %s", doca_error_get_descr(result));
 			return result;
 		}
 	}

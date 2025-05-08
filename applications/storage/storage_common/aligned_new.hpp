@@ -31,7 +31,7 @@
 #include <stdexcept>
 #include <type_traits>
 
-namespace storage::common {
+namespace storage {
 
 template <typename T>
 class make_aligned {
@@ -114,6 +114,6 @@ private:
 	size_t m_alignment = std::alignment_of<T>::value;
 };
 
-} // namespace storage::common
+} // namespace storage
 
 #endif // APPLICATIONS_STORAGE_STORAGE_COMMON_ALIGNED_NEW_HPP_

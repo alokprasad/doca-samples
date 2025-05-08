@@ -90,6 +90,10 @@ void doca_pcc_dev_user_init(uint32_t *disable_event_bitmask)
 
 	/* disable events of below type */
 	*disable_event_bitmask = DOCA_PCC_DEV_EVNT_ROCE_ACK_MASK;
+	if (DOCA_PCC_DEV_ACK_NACK_TX_EVENT_DISABLED_SUPPORTED == 1) {
+		*disable_event_bitmask |= (1 << DOCA_PCC_DEV_EVNT_ROCE_TX_FOR_ACK_NACK);
+	}
+
 	doca_pcc_dev_printf("%s, disable_event_bitmask=0x%x\n", __func__, *disable_event_bitmask);
 	doca_pcc_dev_trace_flush();
 }

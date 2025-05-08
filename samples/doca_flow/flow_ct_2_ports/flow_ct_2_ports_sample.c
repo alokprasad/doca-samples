@@ -79,9 +79,10 @@ static doca_error_t create_rss_pipe(struct doca_flow_port *port,
 	/* RSS queue - send matched traffic to queue 0  */
 	rss_queues[0] = 0;
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.rss_queues = rss_queues;
-	fwd.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
-	fwd.num_of_queues = 1;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.queues_array = rss_queues;
+	fwd.rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
+	fwd.rss.nr_queues = 1;
 
 	result = doca_flow_pipe_create(cfg, &fwd, NULL, pipe);
 	if (result != DOCA_SUCCESS) {
@@ -212,9 +213,10 @@ static doca_error_t create_hairpin_pipe(struct doca_flow_port *port,
 	}
 
 	fwd.type = DOCA_FLOW_FWD_RSS;
-	fwd.num_of_queues = 1;
-	fwd.rss_queues = &queue;
-	fwd.rss_outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
+	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	fwd.rss.nr_queues = 1;
+	fwd.rss.queues_array = &queue;
+	fwd.rss.outer_flags = DOCA_FLOW_RSS_IPV4 | DOCA_FLOW_RSS_UDP;
 
 	result = doca_flow_pipe_create(pipe_cfg, &fwd, NULL, pipe);
 	if (result != DOCA_SUCCESS) {
@@ -465,7 +467,7 @@ static doca_error_t process_packets(struct doca_flow_port *port,
  */
 doca_error_t flow_ct_2_ports(uint16_t nb_queues, struct doca_dev *dev_arr[], int nb_ports)
 {
-	const int nb_entries = 5;
+	const int nb_entries = 6;
 	struct flow_resources resource;
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_pipe *rss_pipes[nb_ports];
@@ -474,6 +476,7 @@ doca_error_t flow_ct_2_ports(uint16_t nb_queues, struct doca_dev *dev_arr[], int
 	struct doca_flow_pipe *ct_pipes[nb_ports];
 	struct doca_flow_pipe *udp_pipes[nb_ports];
 	struct doca_flow_port *ports[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct doca_flow_meta o_zone_mask, o_modify_mask, r_zone_mask, r_modify_mask;
 	struct entries_status ctrl_status, ct_status;
 	uint32_t ct_flags, nb_arm_queues = 1, nb_ctrl_queues = 1, nb_user_actions = 0, nb_ipv4_sessions = 1024,
@@ -524,7 +527,8 @@ doca_error_t flow_ct_2_ports(uint16_t nb_queues, struct doca_dev *dev_arr[], int
 	}
 
 	memset(ports, 0, sizeof(struct doca_dev *) * nb_ports);
-	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, nb_entries));
+	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_ct_destroy();

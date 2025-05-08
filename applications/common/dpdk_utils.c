@@ -313,6 +313,7 @@ static doca_error_t port_init(struct rte_mempool *mbuf_pool, uint8_t port, struc
 	}
 
 	port_conf.rxmode.mq_mode = rss_support ? RTE_ETH_MQ_RX_RSS : RTE_ETH_MQ_RX_NONE;
+	port_conf.txmode.offloads = app_config->port_config.tx_offloads;
 
 	/* Configure the Ethernet device */
 	ret = rte_eth_dev_configure(port, rx_rings + nb_hairpin_queues, tx_rings + nb_hairpin_queues, &port_conf);

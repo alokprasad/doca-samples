@@ -128,7 +128,7 @@ static doca_error_t create_rss_esp_pipe(struct doca_flow_port *port,
 
 	/* RSS queue - distribute matched traffic between queues */
 	for (i = 0; i < nb_rss_queues; ++i)
-		rss_queues[i] = i + 1;
+		rss_queues[i] = i;
 
 	fwd.type = DOCA_FLOW_FWD_RSS;
 	fwd.rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
@@ -214,7 +214,7 @@ static doca_error_t rss_distribution_results(uint16_t port_id, uint16_t nb_queue
 	DOCA_LOG_INFO("Port %d RSS distribution information:", port_id);
 
 	for (i = 0; i < nb_queues; i++) {
-		queue_index = i + 1;
+		queue_index = i;
 		nb_packets = rte_eth_rx_burst(port_id, queue_index, packets, PACKET_BURST);
 		actuall_percentage = GET_PERCENTAGE(nb_packets, total_packets);
 
@@ -241,10 +241,11 @@ static doca_error_t rss_distribution_results(uint16_t port_id, uint16_t nb_queue
 /*
  * Run flow_rss_esp sample
  *
- * @nb_queues [in]: number of queues the sample will use
+ * @nb_steering_queues [in]: number of steering queues the sample will use
+ * @nb_rss_queues [in]: number of rss queues the sample will use
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-doca_error_t flow_rss_esp(int nb_queues)
+doca_error_t flow_rss_esp(int nb_steering_queues, int nb_rss_queues)
 {
 	const int nb_ports = 2;
 	struct flow_resources resource = {.nr_counters = 1};
@@ -254,19 +255,18 @@ doca_error_t flow_rss_esp(int nb_queues)
 	uint32_t actions_mem_size[nb_ports];
 	struct doca_flow_pipe_entry *entries[nb_ports];
 	struct doca_flow_pipe *pipe;
-	int nb_rss_queues = nb_queues - 1;
 	struct entries_status status;
 	doca_error_t result;
 	int port_id;
 
-	result = init_doca_flow(nb_queues, "vnf,hws", &resource, nr_shared_resources);
+	result = init_doca_flow(nb_steering_queues, "vnf,hws", &resource, nr_shared_resources);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA Flow: %s", doca_error_get_descr(result));
 		return result;
 	}
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
-	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, 1));
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_steering_queues, 1));
 	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));

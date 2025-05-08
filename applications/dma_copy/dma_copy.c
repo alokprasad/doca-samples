@@ -66,7 +66,7 @@ int main(int argc, char **argv)
 	if (result != DOCA_SUCCESS)
 		return EXIT_FAILURE;
 
-	result = doca_argp_init("doca_dma_copy", &dma_cfg);
+	result = doca_argp_init(NULL, &dma_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return EXIT_FAILURE;

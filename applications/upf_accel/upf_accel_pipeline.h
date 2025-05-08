@@ -44,8 +44,6 @@
 
 #define UPF_ACCEL_QFI_NONE 0
 
-#define UPF_ACCEL_MAX_NUM_DOMAIN_METERS (UPF_ACCEL_MAX_NUM_METER_TABLES * UPF_ACCEL_MAX_NUM_PDR)
-
 /*
  * Extra space in the software hash table for flows that failed to be
  * accelerated due to lack of space in the hardware table.

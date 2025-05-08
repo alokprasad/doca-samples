@@ -42,7 +42,6 @@ DOCA_LOG_REGISTER(GPURDMA::SAMPLE);
 
 struct rdma_resources resources = {0};
 struct rdma_mmap_obj server_local_mmap_obj_A[NUM_CONN] = {0};
-struct rdma_mmap_obj server_local_mmap_obj_F[NUM_CONN] = {0};
 struct rdma_mmap_obj client_local_mmap_obj_B[NUM_CONN] = {0};
 struct rdma_mmap_obj client_local_mmap_obj_C[NUM_CONN] = {0};
 struct rdma_mmap_obj client_local_mmap_obj_F[NUM_CONN] = {0};
@@ -55,10 +54,8 @@ uint8_t *client_local_buf_B_gpu[NUM_CONN];
 uint8_t *client_local_buf_B_cpu[NUM_CONN];
 uint8_t *client_local_buf_C_gpu[NUM_CONN];
 uint8_t *client_local_buf_C_cpu[NUM_CONN];
-uint8_t *server_local_buf_F[NUM_CONN];
 uint8_t *client_local_buf_F[NUM_CONN];
 struct buf_arr_obj server_local_buf_arr_A[NUM_CONN] = {0};
-struct buf_arr_obj server_local_buf_arr_F[NUM_CONN] = {0};
 struct buf_arr_obj server_remote_buf_arr_F[NUM_CONN] = {0};
 struct buf_arr_obj client_remote_buf_arr_A[NUM_CONN] = {0};
 struct buf_arr_obj client_local_buf_arr_B[NUM_CONN] = {0};
@@ -111,38 +108,6 @@ static doca_error_t create_memory_local_remote_server(int oob_sock_fd,
 
 	DOCA_LOG_INFO("Create local server mmap A context");
 	result = create_mmap(&server_local_mmap_obj_A[conn_idx]);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Function create_mmap failed: %s", doca_error_get_descr(result));
-		goto error;
-	}
-
-	/* Buffer F */
-	/* Register local source buffer obtain an object representing the memory */
-	result = doca_gpu_mem_alloc(resources->gpudev,
-				    (size_t)GPU_BUF_NUM * GPU_BUF_SIZE_F,
-				    4096,
-				    DOCA_GPU_MEM_TYPE_GPU,
-				    (void **)&server_local_buf_F[conn_idx],
-				    NULL);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Function doca_gpu_mem_alloc failed: %s", doca_error_get_descr(result));
-		goto error;
-	}
-
-	cuda_err = cudaMemsetAsync(server_local_buf_F[conn_idx], 0x1, GPU_BUF_NUM * GPU_BUF_SIZE_F, stream);
-	if (cuda_err != cudaSuccess) {
-		DOCA_LOG_ERR("Can't CUDA memset buffer A: %d", cuda_err);
-		goto error;
-	}
-
-	server_local_mmap_obj_F[conn_idx].doca_device = resources->doca_device;
-	server_local_mmap_obj_F[conn_idx].permissions = access_params;
-	server_local_mmap_obj_F[conn_idx].memrange_addr = server_local_buf_F[conn_idx];
-	server_local_mmap_obj_F[conn_idx].memrange_len = (size_t)GPU_BUF_NUM * GPU_BUF_SIZE_F;
-
-	/* create local mmap object */
-	DOCA_LOG_INFO("Create local server mmap A context");
-	result = create_mmap(&server_local_mmap_obj_F[conn_idx]);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Function create_mmap failed: %s", doca_error_get_descr(result));
 		goto error;
@@ -203,18 +168,6 @@ static doca_error_t create_memory_local_remote_server(int oob_sock_fd,
 
 	DOCA_LOG_INFO("Create local DOCA buf array context A");
 	result = create_buf_arr_on_gpu(&server_local_buf_arr_A[conn_idx]);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Function create_buf_arr_on_gpu failed: %s", doca_error_get_descr(result));
-		goto error;
-	}
-
-	server_local_buf_arr_F[conn_idx].gpudev = resources->gpudev;
-	server_local_buf_arr_F[conn_idx].mmap = server_local_mmap_obj_F[conn_idx].mmap;
-	server_local_buf_arr_F[conn_idx].num_elem = 1;
-	server_local_buf_arr_F[conn_idx].elem_size = (size_t)(GPU_BUF_NUM * GPU_BUF_SIZE_F);
-
-	DOCA_LOG_INFO("Create local DOCA buf array context F");
-	result = create_buf_arr_on_gpu(&server_local_buf_arr_F[conn_idx]);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Function create_buf_arr_on_gpu failed: %s", doca_error_get_descr(result));
 		goto error;
@@ -488,12 +441,6 @@ static void destroy_memory_local_remote_server(struct rdma_resources *resources)
 				DOCA_LOG_ERR("Function doca_mmap_destroy failed: %s", doca_error_get_descr(result));
 		}
 
-		if (server_local_mmap_obj_F[conn_idx].mmap) {
-			result = doca_mmap_destroy(server_local_mmap_obj_F[conn_idx].mmap);
-			if (result != DOCA_SUCCESS)
-				DOCA_LOG_ERR("Function doca_mmap_destroy failed: %s", doca_error_get_descr(result));
-		}
-
 		if (server_remote_mmap_F[conn_idx]) {
 			result = doca_mmap_destroy(server_remote_mmap_F[conn_idx]);
 			if (result != DOCA_SUCCESS)
@@ -506,20 +453,8 @@ static void destroy_memory_local_remote_server(struct rdma_resources *resources)
 				DOCA_LOG_ERR("Function doca_gpu_mem_free failed: %s", doca_error_get_descr(result));
 		}
 
-		if (server_local_buf_F[conn_idx]) {
-			result = doca_gpu_mem_free(resources->gpudev, server_local_buf_F[conn_idx]);
-			if (result != DOCA_SUCCESS)
-				DOCA_LOG_ERR("Function doca_gpu_mem_free failed: %s", doca_error_get_descr(result));
-		}
-
 		if (server_local_buf_arr_A[conn_idx].buf_arr) {
 			result = doca_buf_arr_destroy(server_local_buf_arr_A[conn_idx].buf_arr);
-			if (result != DOCA_SUCCESS)
-				DOCA_LOG_ERR("Function doca_buf_arr_destroy failed: %s", doca_error_get_descr(result));
-		}
-
-		if (server_local_buf_arr_F[conn_idx].buf_arr) {
-			result = doca_buf_arr_destroy(server_local_buf_arr_F[conn_idx].buf_arr);
 			if (result != DOCA_SUCCESS)
 				DOCA_LOG_ERR("Function doca_buf_arr_destroy failed: %s", doca_error_get_descr(result));
 		}
@@ -772,7 +707,6 @@ doca_error_t rdma_write_server(struct rdma_config *cfg)
 	result = kernel_write_server(cstream,
 				     resources.gpu_rdma,
 				     server_local_buf_arr_A[0].gpu_buf_arr,
-				     server_local_buf_arr_F[0].gpu_buf_arr,
 				     server_remote_buf_arr_F[0].gpu_buf_arr,
 				     0);
 	if (result != DOCA_SUCCESS) {
@@ -808,7 +742,6 @@ doca_error_t rdma_write_server(struct rdma_config *cfg)
 		result = kernel_write_server(cstream,
 					     resources.gpu_rdma,
 					     server_local_buf_arr_A[1].gpu_buf_arr,
-					     server_local_buf_arr_F[1].gpu_buf_arr,
 					     server_remote_buf_arr_F[1].gpu_buf_arr,
 					     1);
 		if (result != DOCA_SUCCESS) {

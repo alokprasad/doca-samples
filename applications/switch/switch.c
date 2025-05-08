@@ -23,11 +23,8 @@
  *
  */
 
-#include <string.h>
-
 #include <doca_argp.h>
 #include <doca_log.h>
-#include <doca_flow.h>
 
 #include "dpdk_utils.h"
 #include "flow_switch_common.h"
@@ -65,7 +62,7 @@ int main(int argc, char **argv)
 		return exit_status;
 
 	/* Parse cmdline/json arguments */
-	result = doca_argp_init("doca_switch", &ctx);
+	result = doca_argp_init(NULL, &ctx);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return exit_status;
@@ -90,7 +87,7 @@ int main(int argc, char **argv)
 		goto dpdk_destroy;
 	}
 
-	dpdk_config.port_config.nb_ports = ctx.nb_ports + ctx.nb_reps;
+	dpdk_config.port_config.nb_ports = get_dpdk_nb_ports();
 	dpdk_config.port_config.switch_mode = 1;
 	dpdk_config.port_config.isolated_mode = 1;
 

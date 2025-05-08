@@ -36,7 +36,12 @@
 DOCA_LOG_REGISTER(DPU_LOCAL_DMA_COPY::MAIN);
 
 /* Sample's Logic */
-doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, const char *src_buffer, size_t length);
+doca_error_t dma_local_copy(const char *pcie_addr,
+			    char *dst_buffer,
+			    const char *src_buffer,
+			    size_t length,
+			    int num_src_buf,
+			    int num_dst_buf);
 
 /*
  * Sample main function
@@ -57,6 +62,8 @@ int main(int argc, char **argv)
 	/* Set the default configuration values (Example values) */
 	strcpy(dma_conf.pci_address, "03:00.0");
 	strcpy(dma_conf.cpy_txt, "This is a sample piece of text");
+	dma_conf.num_dst_buf = 1;
+	dma_conf.num_src_buf = 1;
 	/* No need to set export_desc_path and buf_info_path which are only needed for DMA across devices */
 
 	/* Register a logger backend */
@@ -79,7 +86,7 @@ int main(int argc, char **argv)
 	goto sample_exit;
 #endif
 
-	result = doca_argp_init("doca_dma_local_copy", &dma_conf);
+	result = doca_argp_init(NULL, &dma_conf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;
@@ -110,7 +117,12 @@ int main(int argc, char **argv)
 
 	memcpy(src_buffer, dma_conf.cpy_txt, length);
 
-	result = dma_local_copy(dma_conf.pci_address, dst_buffer, src_buffer, length);
+	result = dma_local_copy(dma_conf.pci_address,
+				dst_buffer,
+				src_buffer,
+				length,
+				dma_conf.num_src_buf,
+				dma_conf.num_dst_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("dma_local_copy() encountered an error: %s", doca_error_get_descr(result));
 		goto src_buffer_cleanup;

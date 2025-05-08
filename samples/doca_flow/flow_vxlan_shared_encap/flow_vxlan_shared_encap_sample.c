@@ -295,7 +295,6 @@ static int create_shared_resource_encap(void)
 	int ret;
 
 	for (i = 0; i < ENCAP_RESOURCE_NUM; i++) {
-		res_cfg[i].domain = DOCA_FLOW_PIPE_DOMAIN_EGRESS;
 		create_encap_action(&res_cfg[i].encap_cfg.encap, i);
 		res_cfg[i].encap_cfg.is_l2 = true;
 

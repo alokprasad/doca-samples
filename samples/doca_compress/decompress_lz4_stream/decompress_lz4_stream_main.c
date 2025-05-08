@@ -80,7 +80,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the sample");
 
-	result = doca_argp_init("doca_decompress_lz4_stream", &compress_cfg);
+	result = doca_argp_init(NULL, &compress_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

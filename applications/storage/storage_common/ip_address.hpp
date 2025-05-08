@@ -29,7 +29,7 @@
 #include <cstdint>
 #include <string>
 
-namespace storage::common {
+namespace storage {
 
 /*
  * Helper class to hold an ip address and port pair
@@ -108,6 +108,6 @@ private:
  */
 ip_address parse_ip_v4_address(char const *value);
 
-} /* namespace storage::common */
+} /* namespace storage */
 
 #endif /* APPLICATIONS_STORAGE_STORAGE_COMMON_IP_ADDRESS_HPP_ */

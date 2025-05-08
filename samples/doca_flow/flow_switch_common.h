@@ -32,6 +32,10 @@
 #include <doca_dev.h>
 #include <common.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FLOW_SWITCH_PORTS_MAX (128)
 
 /* doca flow switch context */
@@ -43,6 +47,7 @@ struct flow_switch_ctx {
 	const char *rep_arg[FLOW_SWITCH_PORTS_MAX];	  /* dpdk rep_arg */
 	struct doca_dev *doca_dev[FLOW_SWITCH_PORTS_MAX]; /* port doca_dev */
 	tasks_check port_cap;				  /* Optional port capability callback */
+	void *usr_ctx;					  /* user context */
 };
 
 /*
@@ -76,4 +81,14 @@ doca_error_t init_doca_flow_switch_common(struct flow_switch_ctx *ctx);
  */
 void destroy_doca_flow_switch_common(struct flow_switch_ctx *ctx);
 
+/*
+ * Get number of DPDK ports created during EAL init according to user arguments.
+ *
+ * @return: number of created DPDK ports.
+ */
+uint8_t get_dpdk_nb_ports(void);
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* FLOW_SWITCH_COMMON_H_ */

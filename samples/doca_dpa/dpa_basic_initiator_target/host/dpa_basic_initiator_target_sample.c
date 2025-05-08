@@ -199,6 +199,8 @@ doca_error_t dpa_basic_initiator_target(struct dpa_resources *resources)
 	target_thread_obj.doca_dpa = resources->rdma_dpa_ctx;
 	target_thread_obj.func = &thread_kernel;
 	target_thread_obj.arg = thread_arg_dev_ptr;
+	target_thread_obj.affinity = resources->num_affinities > 0 ? resources->affinities[0] : NULL;
+
 	doca_err = dpa_thread_obj_init(&target_thread_obj);
 	if (doca_err != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Function dpa_thread_obj_init failed (%s)", doca_error_get_descr(doca_err));

@@ -27,11 +27,19 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <ctype.h>
 
 #include <doca_argp.h>
 
 #include "pcc_core.h"
+
+#include "libflexio/flexio_ver.h"
+#define PCC_FLEXIO_MAJOR_VERSION (25)
+#define PCC_FLEXIO_MINOR_VERSION (4)
+#define PCC_FLEXIO_PATCH_VERSION (0)
+#define FLEXIO_VER_USED FLEXIO_VER(PCC_FLEXIO_MAJOR_VERSION, PCC_FLEXIO_MINOR_VERSION, PCC_FLEXIO_PATCH_VERSION)
+#include "libflexio/flexio.h"
 
 /*
  * Formats of the trace message to be printed from the device
@@ -53,15 +61,82 @@ const uint32_t default_pcc_rp_threads_list[PCC_RP_THREADS_NUM_DEFAULT_VALUE] = {
 /* Default PCC NP threads */
 const uint32_t default_pcc_np_threads_list[PCC_NP_THREADS_NUM_DEFAULT_VALUE] =
 	{16, 17, 18, 19, 20, 21, 22, 23, 32, 33, 34, 35, 36, 37, 38, 39};
+
 /*
- * Declare default threads flag
+ * Declare threads list flag
  */
-static bool use_default_threads = true;
+static bool use_threads_list = false;
+
+/*
+ * Declare DPA resources flag
+ */
+static bool use_dpa_resources = false;
 
 /*
  * Declare user set application flag
  */
 static bool user_set_app = false;
+
+/**
+ * @brief Get the size of a file
+ *
+ * @param[in] path - Path to the file
+ * @param[out] file_size - Size of the file in bytes
+ * @return DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t get_file_size(const char *path, size_t *file_size)
+{
+	FILE *file;
+	long nb_file_bytes;
+
+	file = fopen(path, "rb");
+	if (file == NULL)
+		return DOCA_ERROR_NOT_FOUND;
+
+	if (fseek(file, 0, SEEK_END) != 0) {
+		fclose(file);
+		return DOCA_ERROR_IO_FAILED;
+	}
+
+	nb_file_bytes = ftell(file);
+	fclose(file);
+
+	if (nb_file_bytes == -1)
+		return DOCA_ERROR_IO_FAILED;
+
+	if (nb_file_bytes == 0)
+		return DOCA_ERROR_INVALID_VALUE;
+
+	*file_size = (size_t)nb_file_bytes;
+	return DOCA_SUCCESS;
+}
+
+/**
+ * @brief Read file content into a pre-allocated buffer
+ *
+ * @param[in] path - Path to the file
+ * @param[out] buffer - Pre-allocated buffer to store file content
+ * @param[out] bytes_read - Number of bytes read from the file
+ * @return DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t read_file_into_buffer(const char *path, char *buffer, size_t *bytes_read)
+{
+	FILE *file;
+	size_t read_byte_count;
+
+	file = fopen(path, "rb");
+	if (file == NULL)
+		return DOCA_ERROR_NOT_FOUND;
+
+	read_byte_count = fread(buffer, 1, *bytes_read, file);
+	fclose(file);
+
+	if (read_byte_count != *bytes_read)
+		return DOCA_ERROR_IO_FAILED;
+
+	*bytes_read = read_byte_count;
+	return DOCA_SUCCESS;
+}
 
 /*
  * Check if the provided device name is a name of a valid IB device
@@ -173,6 +248,82 @@ doca_error_t pcc_init(struct pcc_config *cfg, struct pcc_resources *resources)
 	doca_error_t result, tmp_result;
 	uint32_t min_num_threads, max_num_threads;
 
+	/* Check if both threads list and DPA resources are specified */
+	if (use_dpa_resources && use_threads_list) {
+		PRINT_ERROR(
+			"Error: Cannot specify both threads list and DPA resources. Use either threads list or DPA resources (with application key).\n");
+		return DOCA_ERROR_BAD_CONFIG;
+	}
+
+	/* If DPA resources are specified, read the DPA resources file */
+	if (use_dpa_resources) {
+		char *file_buffer;
+		size_t bytes_read;
+		struct flexio_resource *res;
+
+		/* Get the file size first */
+		result = get_file_size(cfg->dpa_resources_file, &bytes_read);
+		if (result != DOCA_SUCCESS) {
+			PRINT_ERROR("Error: Failed to get DPA resources file size: %s\n", doca_error_get_descr(result));
+			return result;
+		}
+
+		/* Allocate buffer based on file size */
+		file_buffer = (char *)malloc(bytes_read);
+		if (file_buffer == NULL) {
+			PRINT_ERROR("Error: Failed to allocate memory for DPA resources file\n");
+			return DOCA_ERROR_NO_MEMORY;
+		}
+
+		/* Read the DPA resources file */
+		result = read_file_into_buffer(cfg->dpa_resources_file, file_buffer, &bytes_read);
+		if (result != DOCA_SUCCESS) {
+			PRINT_ERROR("Error: Failed to open DPA resources file: %s\n", doca_error_get_descr(result));
+			free(file_buffer);
+			return result;
+		}
+
+		// if app_key is not set, we will default to the pcc_app name
+		const char *app_key = cfg->dpa_application_key;
+		if (app_key == NULL || strlen(app_key) == 0) {
+			struct flexio_app *pcc_app = (struct flexio_app *)(cfg->app);
+			const char *app_name = flexio_app_get_name(pcc_app);
+			app_key = app_name;
+		}
+
+		/* Create the DPA resources object */
+		flexio_status res_created = flexio_resources_create(app_key, file_buffer, bytes_read, &res);
+		if (res_created != FLEXIO_STATUS_SUCCESS) {
+			PRINT_ERROR("Error: Failed creating DPA resources object!\n");
+			free(file_buffer);
+			return DOCA_ERROR_INITIALIZATION;
+		}
+
+		/* No support for eu groups yet */
+		int num_eu_groups = flexio_resources_get_eugs_num(res);
+		if (num_eu_groups > 0) {
+			PRINT_ERROR("Error: Execution unit groups are currently unsupported!\n");
+			free(file_buffer);
+			flexio_resources_destroy(res);
+			return DOCA_ERROR_NOT_SUPPORTED;
+		}
+
+		/* Get the number of execution units */
+		uint32_t num_eus = flexio_resources_get_eus_num(res);
+		uint32_t *eus = flexio_resources_get_eus(res);
+
+		/* Print information about the execution units */
+		PRINT_DEBUG("Debug: Found %d execution units in DPA resources file\n", num_eus);
+
+		for (uint32_t i = 0; i < num_eus; i++) {
+			cfg->threads_list[i] = eus[i];
+		}
+		cfg->threads_num = num_eus;
+
+		flexio_resources_destroy(res);
+		free(file_buffer);
+	}
+
 	/* Open DOCA device that supports PCC */
 	result = open_pcc_device(cfg->device_name, cfg->role, &(resources->doca_device));
 	if (result != DOCA_SUCCESS) {
@@ -181,6 +332,7 @@ doca_error_t pcc_init(struct pcc_config *cfg, struct pcc_resources *resources)
 	}
 
 	/* Create DOCA PCC context */
+	bool use_default_threads = !use_threads_list && !use_dpa_resources;
 	if (cfg->role == PCC_ROLE_RP)
 		result = doca_pcc_create(resources->doca_device, &(resources->doca_pcc));
 	else if (cfg->role == PCC_ROLE_NP)
@@ -520,7 +672,7 @@ static doca_error_t threads_list_callback(void *param, void *config)
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
-	use_default_threads = false;
+	use_threads_list = true;
 	pcc_cfg->threads_num = 0;
 
 	/* Check and fill out the PCC threads list */
@@ -673,9 +825,8 @@ static doca_error_t coredump_file_callback(void *param, void *config)
 {
 	struct pcc_config *pcc_cfg = (struct pcc_config *)config;
 	const char *path = (char *)param;
-	int path_len;
 
-	path_len = strnlen(path, MAX_ARG_SIZE);
+	int path_len = strnlen(path, MAX_ARG_SIZE);
 	if (path_len == MAX_ARG_SIZE) {
 		PRINT_ERROR("Entered path exceeded buffer size: %d\n", MAX_USER_ARG_SIZE);
 		return DOCA_ERROR_INVALID_VALUE;
@@ -687,9 +838,65 @@ static doca_error_t coredump_file_callback(void *param, void *config)
 	return DOCA_SUCCESS;
 }
 
+/*
+ * ARGP Callback - Handles DPA resources file path parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t dpa_resources_file_callback(void *param, void *config)
+{
+	struct pcc_config *pcc_cfg = (struct pcc_config *)config;
+	const char *path = (char *)param;
+
+	int path_len = strnlen(path, MAX_ARG_SIZE);
+	if (path_len == MAX_ARG_SIZE) {
+		PRINT_ERROR("Error: Entered path exceeded buffer size: %d\n", MAX_USER_ARG_SIZE);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	strncpy(pcc_cfg->dpa_resources_file, path, path_len + 1);
+
+	/* Check if the DPA resources file exists */
+	if (path_len > 0) {
+		FILE *file = fopen(path, "r");
+		if (file == NULL) {
+			PRINT_ERROR("Error: DPA resources file '%s' does not exist or cannot be accessed\n", path);
+			return DOCA_ERROR_NOT_FOUND;
+		}
+		fclose(file);
+		use_dpa_resources = true;
+	}
+
+	return DOCA_SUCCESS;
+}
+
+/*
+ * ARGP Callback - Handles DPA application key parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t dpa_application_key_callback(void *param, void *config)
+{
+	struct pcc_config *pcc_cfg = (struct pcc_config *)config;
+	const char *app_key = (char *)param;
+
+	int dpa_app_key_len = strnlen(app_key, MAX_ARG_SIZE);
+	if (dpa_app_key_len == MAX_ARG_SIZE) {
+		PRINT_ERROR("Entered path exceeded buffer size: %d\n", MAX_USER_ARG_SIZE);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	strncpy(pcc_cfg->dpa_application_key, app_key, dpa_app_key_len + 1);
+
+	return DOCA_SUCCESS;
+}
+
 doca_error_t register_pcc_params(void)
 {
-	doca_error_t result;
 	struct doca_argp_param *device_param;
 	struct doca_argp_param *np_nic_telemetry_param;
 	struct doca_argp_param *rp_switch_telemetry_param;
@@ -702,9 +909,11 @@ doca_error_t register_pcc_params(void)
 	struct doca_argp_param *gns_ignore_mask_param;
 	struct doca_argp_param *gns_ignore_value_param;
 	struct doca_argp_param *coredump_file_param;
+	struct doca_argp_param *dpa_resources_file;
+	struct doca_argp_param *dpa_application_key;
 
 	/* Create and register DOCA device name parameter */
-	result = doca_argp_param_create(&device_param);
+	doca_error_t result = doca_argp_param_create(&device_param);
 	if (result != DOCA_SUCCESS) {
 		PRINT_ERROR("Error: Failed to create ARGP param: %s\n", doca_error_get_descr(result));
 		return result;
@@ -939,6 +1148,40 @@ doca_error_t register_pcc_params(void)
 	result = doca_argp_register_param(coredump_file_param);
 	if (result != DOCA_SUCCESS) {
 		PRINT_ERROR("Error: Failed to register program param: %s\n", doca_error_get_descr(result));
+		return result;
+	}
+
+	/* Create and register DPA application name parameter */
+	result = doca_argp_param_create(&dpa_application_key);
+	if (result != DOCA_SUCCESS) {
+		PRINT_ERROR("Error: Failed to create ARGP param: %s\n", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_long_name(dpa_application_key, "dpa-app-key");
+	doca_argp_param_set_arguments(dpa_application_key, "<DPA application key>");
+	doca_argp_param_set_description(dpa_application_key, "Application key in specified DPA resources .yaml file");
+	doca_argp_param_set_callback(dpa_application_key, dpa_application_key_callback);
+	doca_argp_param_set_type(dpa_application_key, DOCA_ARGP_TYPE_STRING);
+	result = doca_argp_register_param(dpa_application_key);
+	if (result != DOCA_SUCCESS) {
+		PRINT_ERROR("Error: failed to register program param: %s\n", doca_error_get_descr(result));
+		return result;
+	}
+
+	/* Create and register DPA resources file parameter */
+	result = doca_argp_param_create(&dpa_resources_file);
+	if (result != DOCA_SUCCESS) {
+		PRINT_ERROR("Error: Failed to create ARGP param: %s\n", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_long_name(dpa_resources_file, "dpa-resources");
+	doca_argp_param_set_arguments(dpa_resources_file, "<DPA resources file>");
+	doca_argp_param_set_description(dpa_resources_file, "Path to a DPA resources .yaml file");
+	doca_argp_param_set_callback(dpa_resources_file, dpa_resources_file_callback);
+	doca_argp_param_set_type(dpa_resources_file, DOCA_ARGP_TYPE_STRING);
+	result = doca_argp_register_param(dpa_resources_file);
+	if (result != DOCA_SUCCESS) {
+		PRINT_ERROR("Error: failed to register program param: %s\n", doca_error_get_descr(result));
 		return result;
 	}
 

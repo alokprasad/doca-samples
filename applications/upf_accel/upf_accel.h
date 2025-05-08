@@ -35,6 +35,7 @@
 #include <doca_flow_net.h>
 
 #include <flow_common.h>
+#include <packet_parser.h>
 
 enum upf_accel_port {
 	UPF_ACCEL_PORT0,
@@ -66,16 +67,10 @@ enum upf_accel_port {
 #define UPF_ACCEL_SRC_IP 0xc0a80101 // 192.168.1.1
 #define UPF_ACCEL_DST_IP 0xc0a80201 // 192.168.2.1
 
-#define UPF_ACCEL_LOG_MAX_NUM_METERS_MAX 10
-#define UPF_ACCEL_MAX_NUM_METERS (1ul << UPF_ACCEL_LOG_MAX_NUM_METERS_MAX)
-#define UPF_ACCEL_LOG_MAX_NUM_METER_TABLES (UPF_ACCEL_LOG_MAX_NUM_METERS_MAX - UPF_ACCEL_LOG_MAX_NUM_PDR)
-#define UPF_ACCEL_MAX_NUM_METER_TABLES (1ul << UPF_ACCEL_LOG_MAX_NUM_METER_TABLES)
+#define UPF_ACCEL_LOG_MAX_PDR_NUM_RATE_METERS 2
+#define UPF_ACCEL_MAX_PDR_NUM_RATE_METERS (1ul << UPF_ACCEL_LOG_MAX_PDR_NUM_RATE_METERS)
 
-#define UPF_ACCEL_INVALID_METER_IDX (UPF_ACCEL_MAX_NUM_METER_TABLES)
-
-#define UPF_ACCEL_META_FROM_SW (1ul << UPF_ACCEL_LOG_MAX_NUM_PDR)
-
-#define UPF_ACCEL_META_PKT_DIR_OFFSET (1 /*FROM_SW width*/ + UPF_ACCEL_LOG_MAX_NUM_PDR)
+#define UPF_ACCEL_META_PKT_DIR_OFFSET (UPF_ACCEL_LOG_MAX_NUM_PDR)
 #define UPF_ACCEL_META_PKT_DIR_UL (0x1 << UPF_ACCEL_META_PKT_DIR_OFFSET)
 #define UPF_ACCEL_META_PKT_DIR_DL (0x2 << UPF_ACCEL_META_PKT_DIR_OFFSET)
 #define UPF_ACCEL_META_PKT_DIR_MASK (0x3 << UPF_ACCEL_META_PKT_DIR_OFFSET)
@@ -136,18 +131,11 @@ enum upf_accel_pipe_type {
 	UPF_ACCEL_PIPE_TX_DROPS_START,
 	UPF_ACCEL_PIPE_TX_DROPS_END = UPF_ACCEL_PIPE_TX_DROPS_START + UPF_ACCEL_DROP_NUM,
 
-	UPF_ACCEL_PIPE_RX_ROUTER_START,
-	UPF_ACCEL_PIPE_RX_ROUTER_END = UPF_ACCEL_PIPE_RX_ROUTER_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
-	UPF_ACCEL_PIPE_RX_SHARED_METERS_START,
-	UPF_ACCEL_PIPE_RX_SHARED_METERS_END = UPF_ACCEL_PIPE_RX_SHARED_METERS_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
-	UPF_ACCEL_PIPE_RX_COLOR_MATCH_START,
-	UPF_ACCEL_PIPE_RX_COLOR_MATCH_END = UPF_ACCEL_PIPE_RX_COLOR_MATCH_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
-	UPF_ACCEL_PIPE_TX_ROUTER_START,
-	UPF_ACCEL_PIPE_TX_ROUTER_END = UPF_ACCEL_PIPE_TX_ROUTER_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
 	UPF_ACCEL_PIPE_TX_SHARED_METERS_START,
-	UPF_ACCEL_PIPE_TX_SHARED_METERS_END = UPF_ACCEL_PIPE_TX_SHARED_METERS_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
+	UPF_ACCEL_PIPE_TX_SHARED_METERS_END = UPF_ACCEL_PIPE_TX_SHARED_METERS_START + UPF_ACCEL_MAX_PDR_NUM_RATE_METERS,
 	UPF_ACCEL_PIPE_TX_COLOR_MATCH_START,
-	UPF_ACCEL_PIPE_TX_COLOR_MATCH_END = UPF_ACCEL_PIPE_TX_COLOR_MATCH_START + UPF_ACCEL_MAX_NUM_METER_TABLES,
+	UPF_ACCEL_PIPE_TX_COLOR_MATCH_END = UPF_ACCEL_PIPE_TX_COLOR_MATCH_START + UPF_ACCEL_MAX_PDR_NUM_RATE_METERS - 1,
+	UPF_ACCEL_PIPE_TX_COLOR_MATCH_NO_MORE_METERS,
 
 	UPF_ACCEL_PIPE_ULDL,
 	UPF_ACCEL_PIPE_EXT_GTP,
@@ -169,12 +157,6 @@ enum upf_accel_encap_action_type {
 enum upf_accel_rule_type {
 	UPF_ACCEL_RULE_DYNAMIC,
 	UPF_ACCEL_RULE_STATIC,
-};
-
-enum upf_accel_packet_direction {
-	PKT_DIR_RAN, /* Radio Access Network - Uplink packet */
-	PKT_DIR_WAN, /* Wide Area Network - Downlink packet */
-	PKT_DIR_NUM, /* Amount of directions */
 };
 
 enum upf_accel_flow_status {
@@ -222,7 +204,6 @@ struct upf_accel_pdr {
 	struct upf_accel_ip_port_range pdi_sdf_from_port_range; /* PDI's SDF from port range */
 	struct upf_accel_ip_addr pdi_sdf_to_ip;			/* PDI's SDF to IP */
 	struct upf_accel_ip_port_range pdi_sdf_to_port_range;	/* PDI's SDF to port range */
-	uint32_t qer_meter_tbl_idxs[UPF_ACCEL_MAX_NUM_METER_TABLES]; /* QER meter table indexes */
 };
 
 struct upf_accel_pdrs {
@@ -322,9 +303,9 @@ struct upf_accel_sw_aging_ll_node {
 };
 
 struct upf_accel_dyn_entry_ctx {
-	struct upf_accel_match_8t match; /* Connection match */
-	uint64_t cnt_pkts[PKT_DIR_NUM];	 /* Packets counter */
-	uint64_t cnt_bytes[PKT_DIR_NUM]; /* Bytes counter */
+	struct upf_accel_match_8t match;	 /* Connection match */
+	uint64_t cnt_pkts[PARSER_PKT_TYPE_NUM];	 /* Packets counter */
+	uint64_t cnt_bytes[PARSER_PKT_TYPE_NUM]; /* Bytes counter */
 	union {
 		/* Fields required for accelerated flows */
 		struct {
@@ -333,12 +314,12 @@ struct upf_accel_dyn_entry_ctx {
 		};
 		/* Fields required for unaccelerated flows */
 		struct upf_accel_sw_aging_ll_node sw_aging_node; /* SW Aging linked list node */
-	} entries[PKT_DIR_NUM];		   /* Pipe entries (accelerated) / Linked list entries (unaccelerated) */
-	struct upf_accel_fp_data *fp_data; /* Pointer to the data of the handling core */
-	uint32_t pdr_id[PKT_DIR_NUM];	   /* PDR ID */
-	int32_t conn_idx;		   /* Position of the connection in the hash table */
-	hash_sig_t hash;		   /* RTE hash (aka signature) */
-	enum upf_accel_flow_status flow_status[PKT_DIR_NUM]; /* Status of an accelerated flow */
+	} entries[PARSER_PKT_TYPE_NUM];	      /* Pipe entries (accelerated) / Linked list entries (unaccelerated) */
+	struct upf_accel_fp_data *fp_data;    /* Pointer to the data of the handling core */
+	uint32_t pdr_id[PARSER_PKT_TYPE_NUM]; /* PDR ID */
+	int32_t conn_idx;		      /* Position of the connection in the hash table */
+	hash_sig_t hash;		      /* RTE hash (aka signature) */
+	enum upf_accel_flow_status flow_status[PARSER_PKT_TYPE_NUM]; /* Status of an accelerated flow */
 };
 
 struct upf_accel_static_entry_ctx {
@@ -476,8 +457,8 @@ void upf_accel_vxlan_cleanup(struct upf_accel_config *cfg);
  * Init the SW Aging doubly linked list head & tail
  *
  * @fp_data [in]: flow processing data
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet direction
  */
-void upf_accel_sw_aging_ll_init(struct upf_accel_fp_data *fp_data, enum upf_accel_packet_direction pkt_dir);
+void upf_accel_sw_aging_ll_init(struct upf_accel_fp_data *fp_data, enum parser_pkt_type pkt_type);
 
 #endif /* UPF_ACCEL_H_ */

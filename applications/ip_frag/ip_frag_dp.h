@@ -47,12 +47,19 @@ enum ip_frag_port {
 	IP_FRAG_PORT_NUM,
 };
 
+enum ip_frag_rss_pipe {
+	IP_FRAG_RSS_PIPE_IPV4,
+	IP_FRAG_RSS_PIPE_IPV6,
+	IP_FRAG_RSS_PIPE_NUM,
+};
+
 struct ip_frag_config {
 	enum ip_frag_mode mode;		   /* Application mode */
 	uint64_t mbuf_flag_outer_modified; /* RTE mbuf outer fragmentation flag mask */
 	uint64_t mbuf_flag_inner_modified; /* RTE mbuf inner fragmentation flag mask */
 	uint16_t mtu;			   /* MTU */
 	bool mbuf_chain;		   /* Use chained mbuf optimization */
+	bool hw_cksum;			   /* Use hardware checksum optimization */
 	uint32_t frag_tbl_timeout;	   /* Fragmentation table timeout in ms */
 	uint32_t frag_tbl_size;		   /* Fragmentation table size */
 };
@@ -71,11 +78,11 @@ struct ip_frag_pipe_cfg {
 };
 
 struct ip_frag_ctx {
-	uint16_t num_ports;				/* Number of ports */
-	uint16_t num_queues;				/* Number of device queues */
-	struct doca_flow_pipe *pipes[IP_FRAG_PORT_NUM]; /* Pipes */
-	struct doca_flow_port *ports[IP_FRAG_PORT_NUM]; /* Ports */
-	struct doca_dev *dev_arr[IP_FRAG_PORT_NUM];	/* Devices array */
+	uint16_t num_ports;						      /* Number of ports */
+	uint16_t num_queues;						      /* Number of device queues */
+	struct doca_flow_pipe *pipes[IP_FRAG_PORT_NUM][IP_FRAG_RSS_PIPE_NUM]; /* Pipes */
+	struct doca_flow_port *ports[IP_FRAG_PORT_NUM];			      /* Ports */
+	struct doca_dev *dev_arr[IP_FRAG_PORT_NUM];			      /* Devices array */
 };
 
 extern bool force_stop;

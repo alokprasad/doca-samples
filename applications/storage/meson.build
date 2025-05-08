@@ -24,24 +24,34 @@
 
 
 storage_common_src = [
+    'storage_common/binary_content.cpp',
     'storage_common/buffer_utils.cpp',
+    'storage_common/control_channel.cpp',
+    'storage_common/control_message.cpp',
     'storage_common/doca_utils.cpp',
+    'storage_common/file_utils.cpp',
+    'storage_common/io_message.cpp',
     'storage_common/ip_address.cpp',
-    'storage_common/posix_utils.cpp',
-    'storage_common/tcp_socket.cpp',
 ]
 
-zero_copy_common_src = storage_common_src + [
-    'zero_copy/control_message.cpp',
-    'zero_copy/io_message.cpp',
-]
+if host_machine.system() == 'linux'
+    storage_common_src += [
+        'storage_common/posix/os_utils.cpp',
+        'storage_common/posix/tcp_socket.cpp',
+    ]
+elif host_machine.system() == 'windows'
+    message('Storage application does not currently support windows')
+    subdir_done()
+else
+    message('Storage application does not currently support this unknown operating system')
+    subdir_done()
+endif
 
 if is_host
-    executable(DOCA_PREFIX + APP_NAME + '_zero_copy_initiator_comch',
+    executable(DOCA_PREFIX + APP_NAME + '_initiator_comch',
                [
-                   'zero_copy/initiator_comch_application.cpp',
-                   'zero_copy/initiator_comch_main.cpp',
-               ] + zero_copy_common_src,
+                   'initiator_comch.cpp',
+               ] + storage_common_src,
                override_options : ['cpp_std=c++17'],
                c_args : base_c_args,
                cpp_args : base_cpp_args,
@@ -49,14 +59,26 @@ if is_host
                include_directories : app_inc_dirs + include_directories('.'),
                install : install_apps,
     )
+
 endif
 
 if is_dpu
-    executable(DOCA_PREFIX + APP_NAME + '_zero_copy_comch_to_rdma',
+    executable(DOCA_PREFIX + APP_NAME + '_comch_to_rdma_zero_copy',
                [
-                   'zero_copy/comch_to_rdma_application.cpp',
-                   'zero_copy/comch_to_rdma_main.cpp',
-               ] + zero_copy_common_src,
+                   'comch_to_rdma_zero_copy.cpp',
+               ] + storage_common_src,
+               override_options : ['cpp_std=c++17'],
+               c_args : base_c_args,
+               cpp_args : base_cpp_args,
+               dependencies : app_dependencies,
+               include_directories : app_inc_dirs + include_directories('.'),
+               install : install_apps,
+    )
+
+    executable(DOCA_PREFIX + APP_NAME + '_comch_to_rdma_gga_offload',
+               [
+                   'comch_to_rdma_gga_offload.cpp',
+               ] + storage_common_src,
                override_options : ['cpp_std=c++17'],
                c_args : base_c_args,
                cpp_args : base_cpp_args,
@@ -66,11 +88,10 @@ if is_dpu
     )
 endif
 
-executable(DOCA_PREFIX + APP_NAME + '_zero_copy_target_rdma',
+executable(DOCA_PREFIX + APP_NAME + '_target_rdma',
            [
-               'zero_copy/target_rdma_application.cpp',
-               'zero_copy/target_rdma_main.cpp',
-           ] + zero_copy_common_src,
+               'target_rdma.cpp',
+           ] + storage_common_src,
            override_options : ['cpp_std=c++17'],
            c_args : base_c_args,
            cpp_args : base_cpp_args,
@@ -78,3 +99,21 @@ executable(DOCA_PREFIX + APP_NAME + '_zero_copy_target_rdma',
            include_directories : app_inc_dirs + include_directories('.'),
            install : install_apps,
 )
+
+lz4_dev_dep = dependency('liblz4', required : false)
+if lz4_dev_dep.found()
+    executable(DOCA_PREFIX + APP_NAME + '_gga_offload_sbc_generator',
+               [
+                   'gga_offload_sbc_generator.cpp',
+               ] + storage_common_src,
+               override_options : ['cpp_std=c++17'],
+               c_args : base_c_args,
+               cpp_args : base_cpp_args,
+               dependencies : app_dependencies,
+               include_directories : app_inc_dirs + include_directories('.'),
+               install : install_apps,
+    )
+else
+    message('Skipping compilation of DOCA Application - ' + DOCA_PREFIX + APP_NAME + '_gga_offload_sbc_generator' + ' - Missing library liblz4')
+endif
+

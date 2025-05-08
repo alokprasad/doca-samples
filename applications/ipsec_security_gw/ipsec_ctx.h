@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2023-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -35,15 +35,11 @@
 extern "C" {
 #endif
 
-#define MAX_SOCKET_PATH_NAME (108) /* Maximum socket file name length */
-#define MAX_FILE_NAME (255)	   /* Maximum file name length */
-#define MAX_NB_RULES (1048576)	   /* Maximal number of rules == 2^20 */
-#define DYN_RESERVED_RULES (1024)  /* Reserved rules for dynamic rules */
-#define MAX_KEY_LEN (32)	   /* Maximal GCM key size is 256bit==32B */
-#ifndef MLX5DV_HWS
-#define ENCRYPT_DUMMY_ID ((MAX_NB_RULES * 2) + 1) /* Dummy resource ID for encrypt pipe creation */
-#define DECRYPT_DUMMY_ID ((MAX_NB_RULES * 2) + 2) /* Dummy resource ID for decrypt pipe creation */
-#endif
+#define MAX_SOCKET_PATH_NAME (108)	    /* Maximum socket file name length */
+#define MAX_FILE_NAME (255)		    /* Maximum file name length */
+#define MAX_NB_RULES (1048576)		    /* Maximal number of rules == 2^20 */
+#define DYN_RESERVED_RULES (1024)	    /* Reserved rules for dynamic rules */
+#define MAX_KEY_LEN (32)		    /* Maximal GCM key size is 256bit==32B */
 #define NUM_OF_SYNDROMES (4)		    /* Number of bad syndromes */
 #define SW_WINDOW_SIZE 64		    /* The size of the replay window when anti replay is done by SW */
 #define HW_WINDOW_SIZE 128		    /* The size of the replay window when anti replay is done by HW*/
@@ -54,6 +50,7 @@ extern "C" {
 struct ipsec_security_gw_sa_attrs {
 	enum doca_flow_crypto_key_type key_type; /* Key type */
 	uint8_t enc_key_data[MAX_KEY_LEN];	 /* Policy encryption key */
+	uint64_t iv;				 /* Policy IV */
 	uint32_t salt;				 /* Key Salt */
 	uint32_t lifetime_threshold;		 /* SA lifetime threshold */
 	bool esn_en;				 /* If extended sn is enable*/
@@ -262,6 +259,8 @@ struct ipsec_security_gw_config {
 	uint8_t nb_cores;				  /* number of cores to DPDK -l flag */
 	uint32_t vni;					  /* vni to use when vxlan encap is true */
 	enum doca_flow_crypto_icv_len icv_length;	  /* Supported icv (Integrity Check Value) length */
+	struct entries_status *secured_status;
+	struct entries_status *unsecured_status;
 };
 
 /*

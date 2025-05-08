@@ -120,6 +120,25 @@ doca_error_t ipsec_security_gw_init_doca_flow(const struct ipsec_security_gw_con
 					      struct ipsec_security_gw_ports_map *ports[]);
 
 /*
+ * Initialized status entries for each port
+ *
+ * @app_cfg [in]: application configuration structure
+ * @nb_queues [in]: number of queues
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t ipsec_security_gw_init_status(struct ipsec_security_gw_config *app_cfg, int nb_queues);
+
+/*
+ * Binding encrypt and decrypt rules
+ *
+ * @ports [in]: initialized DOCA Flow ports
+ * @app_cfg [in]: application configuration structure
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t ipsec_security_gw_bind(struct ipsec_security_gw_ports_map *ports[],
+				    struct ipsec_security_gw_config *app_cfg);
+
+/*
  * Destroy DOCA Flow resources
  *
  * @nb_ports [in]: number of ports to destroy
@@ -142,7 +161,7 @@ doca_error_t process_entries(struct doca_flow_port *port,
 			     uint16_t pipe_queue);
 
 /*
- * create root pipe for ingress in switch mode that forward the packets based on the port_meta
+ * create root pipe for ingress in switch mode that forward the packets based on the port_id
  *
  * @ports [in]: array of struct ipsec_security_gw_ports_map
  * @app_cfg [in]: application configuration struct
@@ -206,6 +225,13 @@ void remove_ethernet_padding(struct rte_mbuf **m);
  * @return: enum doca_flow_crypto_icv_len with the correct icv length
  */
 uint32_t get_icv_len_int(enum doca_flow_crypto_icv_len icv_len);
+
+/*
+ * Release application allocated status entries
+ *
+ * @app_cfg [in]: application configuration struct
+ */
+void security_gateway_free_status_entries(struct ipsec_security_gw_config *app_cfg);
 
 /*
  * Release application allocated resources

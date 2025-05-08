@@ -287,7 +287,7 @@ static doca_error_t add_host_to_network_pipe_entries(struct doca_flow_pipe *pipe
 }
 
 /*
- * Create DOCA Flow pipe with match on port_meta
+ * Create DOCA Flow pipe with match on port_id
  * Matched traffic will be forwarded to the pipe defined per entry.
  * Unmatched traffic will be dropped.
  *
@@ -311,8 +311,8 @@ static doca_error_t create_switch_pipe(struct doca_flow_port *sw_port, int nb_po
 	memset(&monitor, 0, sizeof(monitor));
 	memset(&fwd_miss, 0, sizeof(fwd_miss));
 
-	match.parser_meta.port_meta = UINT32_MAX;
-	match_mask.parser_meta.port_meta = UINT32_MAX;
+	match.parser_meta.port_id = UINT16_MAX;
+	match_mask.parser_meta.port_id = UINT16_MAX;
 
 	/* Unmatched packets will be dropped */
 	fwd_miss.type = DOCA_FLOW_FWD_DROP;
@@ -373,7 +373,7 @@ static doca_error_t add_switch_pipe_entries(struct doca_flow_pipe *pipe,
 	memset(&fwd, 0, sizeof(fwd));
 	memset(&match, 0, sizeof(match));
 
-	match.parser_meta.port_meta = 0;
+	match.parser_meta.port_id = 0;
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = n2h_pipe;
 
@@ -391,7 +391,7 @@ static doca_error_t add_switch_pipe_entries(struct doca_flow_pipe *pipe,
 		return result;
 	}
 
-	match.parser_meta.port_meta = 1;
+	match.parser_meta.port_id = 1;
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = h2n_pipe;
 
@@ -409,7 +409,7 @@ static doca_error_t add_switch_pipe_entries(struct doca_flow_pipe *pipe,
 		return result;
 	}
 
-	match.parser_meta.port_meta = 2;
+	match.parser_meta.port_id = 2;
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = h2n_pipe;
 

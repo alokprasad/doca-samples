@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 
 	init_aes_gcm_params(&aes_gcm_cfg);
 
-	result = doca_argp_init("doca_aes_gcm_encrypt", &aes_gcm_cfg);
+	result = doca_argp_init(NULL, &aes_gcm_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

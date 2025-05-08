@@ -31,6 +31,7 @@
 #include <doca_flow.h>
 #include <doca_dev.h>
 #include <doca_error.h>
+#include <doca_buf.h>
 
 struct eth_rxq_flow_resources {
 	struct doca_flow_port *df_port;		 /* DOCA flow port */
@@ -69,5 +70,23 @@ doca_error_t allocate_eth_rxq_flow_resources(struct eth_rxq_flow_config *cfg, st
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 doca_error_t destroy_eth_rxq_flow_resources(struct eth_rxq_flow_resources *resources);
+
+/*
+ * Get DOCA buf packet headroom size for ETH RXQ sample
+ *
+ * @pkt [in]: DOCA buf packet for ETH RXQ
+ * @headroom_size [out]: packet headroom size
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t get_pkt_headroom(struct doca_buf *pkt, uint16_t *headroom_size);
+
+/*
+ * Get DOCA buf packet tailroom size for ETH RXQ sample
+ *
+ * @pkt [in]: DOCA buf packet for ETH RXQ
+ * @tailroom_size [out]: packet tailroom size
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t get_pkt_tailroom(struct doca_buf *pkt, uint16_t *tailroom_size);
 
 #endif /* ETH_RXQ_COMMON_H_ */

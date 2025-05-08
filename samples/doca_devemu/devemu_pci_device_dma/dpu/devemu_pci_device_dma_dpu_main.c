@@ -353,7 +353,7 @@ int main(int argc, char **argv)
 	DOCA_LOG_INFO("Starting the sample");
 
 #ifdef DOCA_ARCH_DPU
-	result = doca_argp_init("doca_devemu_pci_device_dma_dpu", &devemu_pci_cfg);
+	result = doca_argp_init(NULL, &devemu_pci_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

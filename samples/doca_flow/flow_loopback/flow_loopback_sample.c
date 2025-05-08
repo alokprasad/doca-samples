@@ -67,16 +67,14 @@ static void process_packets(int ingress_port)
 	int nb_packets;
 	int i;
 
-	while (!force_quit) {
-		nb_packets = rte_eth_rx_burst(ingress_port, queue_index, packets, PACKET_BURST);
+	nb_packets = rte_eth_rx_burst(ingress_port, queue_index, packets, PACKET_BURST);
 
-		/* Print received packets' meta data */
-		for (i = 0; i < nb_packets; i++) {
-			if (rte_flow_dynf_metadata_avail())
-				DOCA_LOG_INFO("Packet received with meta data %d", *RTE_FLOW_DYNF_METADATA(packets[i]));
-		}
-		rte_eth_tx_burst(ingress_port, queue_index, packets, PACKET_BURST);
+	/* Print received packets' meta data */
+	for (i = 0; i < nb_packets; i++) {
+		if (rte_flow_dynf_metadata_avail())
+			DOCA_LOG_INFO("Packet received with meta data %d", *RTE_FLOW_DYNF_METADATA(packets[i]));
 	}
+	rte_eth_tx_burst(ingress_port, queue_index, packets, PACKET_BURST);
 }
 
 /*
@@ -604,8 +602,10 @@ doca_error_t flow_loopback(int nb_queues, uint8_t mac_addresses[2][6])
 	signal(SIGTERM, signal_handler);
 
 	DOCA_LOG_INFO("Wait for packets to arrive");
-	for (port_id = 0; port_id < nb_ports; port_id++)
-		process_packets(port_id);
+	while (!force_quit) {
+		for (port_id = 0; port_id < nb_ports; port_id++)
+			process_packets(port_id);
+	}
 
 	result = stop_doca_flow_ports(nb_ports, ports);
 	doca_flow_destroy();

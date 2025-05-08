@@ -70,6 +70,16 @@ extern "C" {
 #define RDMA_DEFAULT_BUF_LIST_LEN (1)
 
 /**
+ * @brief DPA resources file path size
+ */
+#define DPA_RESOURCES_PATH_MAX_SIZE 1024
+
+/**
+ * @brief DPA application key size
+ */
+#define DPA_APP_KEY_MAX_SIZE 1024
+
+/**
  * @brief A struct that includes all the resources needed for DPA
  */
 struct dpa_resources {
@@ -79,27 +89,32 @@ struct dpa_resources {
 						 When running from Host: will be equal to pf_doca_device */
 	struct doca_dpa *rdma_dpa_ctx; /**< When running from DPU: extended DOCA DPA context created on RDMA DOCA device
 					      When running from Host: will be equal to pf_dpa_ctx */
-	doca_dpa_dev_t rdma_dpa_ctx_handle; /**< RDMA DOCA DPA context handle */
+	doca_dpa_dev_t rdma_dpa_ctx_handle;	  /**< RDMA DOCA DPA context handle */
+	struct doca_dpa_eu_affinity **affinities; /**< DPA thread affinity */
+	uint32_t num_affinities;		  /**< Number of affinities */
 };
 
 /**
  * @brief Configuration struct
  */
 struct dpa_config {
-	char pf_device_name[DOCA_DEVINFO_IBDEV_NAME_SIZE];   /**< Buffer that holds the PF device name */
-	char rdma_device_name[DOCA_DEVINFO_IBDEV_NAME_SIZE]; /**< Needed when running from DPU: Buffer that holds the
-								RDMA device name */
+	char pf_device_name[DOCA_DEVINFO_IBDEV_NAME_SIZE];    /**< Buffer that holds the PF device name */
+	char rdma_device_name[DOCA_DEVINFO_IBDEV_NAME_SIZE];  /**< Needed when running from DPU: Buffer that holds the
+								 RDMA device name */
+	char dpa_resources_file[DPA_RESOURCES_PATH_MAX_SIZE]; /**< Path to the DPA resources file */
+	char dpa_app_key[DPA_APP_KEY_MAX_SIZE];		      /**< DPA application key */
 };
 
 /**
  * @brief A struct that includes all the resources needed for DPA thread
  */
 struct dpa_thread_obj {
-	struct doca_dpa *doca_dpa;	    /**< DOCA DPA context */
-	doca_dpa_func_t *func;		    /**< DPA thread entry point */
-	uint64_t arg;			    /**< DPA thread entry point argument */
-	doca_dpa_dev_uintptr_t tls_dev_ptr; /**< DPA thread local storage device memory pointer */
-	struct doca_dpa_thread *thread;	    /**< Created DPA thread */
+	struct doca_dpa *doca_dpa;	       /**< DOCA DPA context */
+	doca_dpa_func_t *func;		       /**< DPA thread entry point */
+	uint64_t arg;			       /**< DPA thread entry point argument */
+	doca_dpa_dev_uintptr_t tls_dev_ptr;    /**< DPA thread local storage device memory pointer */
+	struct doca_dpa_thread *thread;	       /**< Created DPA thread */
+	struct doca_dpa_eu_affinity *affinity; /**< DPA thread affinity */
 };
 
 /**

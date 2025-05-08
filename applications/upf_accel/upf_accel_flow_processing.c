@@ -38,7 +38,6 @@
 
 #include "upf_accel.h"
 #include "upf_accel_flow_processing.h"
-#include "upf_accel_packet_parser.h"
 
 #define UPF_ACCEL_MAX_PKT_BURST 32
 /* Maximum DOCA Flow entries to age in an aging function call */
@@ -51,12 +50,11 @@ struct upf_accel_fp_burst_ctx {
 	struct rte_mbuf *tx_pkts[UPF_ACCEL_MAX_PKT_BURST];	     /* Tx packet burst */
 	struct upf_accel_match_8t *matches[UPF_ACCEL_MAX_PKT_BURST]; /* Packet n-tuple matches */
 	struct upf_accel_entry_ctx *conns[UPF_ACCEL_MAX_PKT_BURST];  /* Connections matched to packet n-tuples */
-	struct upf_accel_tun_parser_ctx parse_ctxs[UPF_ACCEL_MAX_PKT_BURST]; /* Packet n-tuple parser contexts */
-	enum upf_accel_packet_direction pkts_dir[UPF_ACCEL_MAX_PKT_BURST];   /* Packet direction (ran (uplink) OR wan
-									  (downlink)) */
-	uint16_t rx_pkts_cnt;						     /* Rx packet burst count */
-	uint16_t tx_pkts_cnt;						     /* Tx packet burst count */
-	bool pkts_drop[UPF_ACCEL_MAX_PKT_BURST];			     /* Packet processing drop indicator */
+	struct tun_parser_ctx parse_ctxs[UPF_ACCEL_MAX_PKT_BURST];   /* Packet n-tuple parser contexts */
+	enum parser_pkt_type pkts_type[UPF_ACCEL_MAX_PKT_BURST];     /* Packet type (plain or tunneled) */
+	uint16_t rx_pkts_cnt;					     /* Rx packet burst count */
+	uint16_t tx_pkts_cnt;					     /* Tx packet burst count */
+	bool pkts_drop[UPF_ACCEL_MAX_PKT_BURST];		     /* Packet processing drop indicator */
 } __rte_aligned(RTE_CACHE_LINE_SIZE);
 
 static_assert(UPF_ACCEL_MAX_PKT_BURST <= RTE_HASH_LOOKUP_BULK_MAX,
@@ -65,37 +63,37 @@ static_assert(UPF_ACCEL_MAX_PKT_BURST <= RTE_HASH_LOOKUP_BULK_MAX,
 DOCA_LOG_REGISTER(UPF_ACCEL::FLOW_PROCESSING);
 
 /*
- * Get the opposite packet direction
+ * Get the opposite packet type
  *
- * @pkt_dir [in]: packet direction
- * @return: the opposite direction of packet
+ * @pkt_type [in]: packet type
+ * @return: the opposite type of packet
  */
-static enum upf_accel_packet_direction upf_accel_fp_get_opposite_pkt_dir(enum upf_accel_packet_direction pkt_dir)
+static enum parser_pkt_type upf_accel_fp_get_opposite_pkt_type(enum parser_pkt_type pkt_type)
 {
-	return (pkt_dir == PKT_DIR_RAN) ? PKT_DIR_WAN : PKT_DIR_RAN;
+	return (pkt_type == PARSER_PKT_TYPE_TUNNELED) ? PARSER_PKT_TYPE_PLAIN : PARSER_PKT_TYPE_TUNNELED;
 }
 
 /*
  * Delete flow
  *
  * Assign its status to NONE, and delete its context from the ht if the flow
- * in the second direction is also NONE (or in error status)
+ * in the second type is also NONE (or in error status)
  *
  * @fp_data [in]: flow processing data
  * @dyn_ctx [in]: dynamic entry context
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_fp_delete_flow(struct upf_accel_fp_data *fp_data,
 					     struct upf_accel_dyn_entry_ctx *dyn_ctx,
-					     enum upf_accel_packet_direction pkt_dir)
+					     enum parser_pkt_type pkt_type)
 {
-	enum upf_accel_packet_direction opposite_dir = upf_accel_fp_get_opposite_pkt_dir(pkt_dir);
-	bool last_entry = dyn_ctx->flow_status[opposite_dir] == UPF_ACCEL_FLOW_STATUS_NONE ||
-			  (dyn_ctx->flow_status[opposite_dir] == UPF_ACCEL_FLOW_STATUS_ACCELERATED &&
-			   dyn_ctx->entries[opposite_dir].status == DOCA_FLOW_ENTRY_STATUS_ERROR);
+	enum parser_pkt_type opposite_dir_type = upf_accel_fp_get_opposite_pkt_type(pkt_type);
+	bool last_entry = dyn_ctx->flow_status[opposite_dir_type] == UPF_ACCEL_FLOW_STATUS_NONE ||
+			  (dyn_ctx->flow_status[opposite_dir_type] == UPF_ACCEL_FLOW_STATUS_ACCELERATED &&
+			   dyn_ctx->entries[opposite_dir_type].status == DOCA_FLOW_ENTRY_STATUS_ERROR);
 
-	dyn_ctx->flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_NONE;
+	dyn_ctx->flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_NONE;
 
 	if (!last_entry)
 		return DOCA_SUCCESS;
@@ -127,19 +125,19 @@ static void upf_accel_dyn_entry_cb(struct upf_accel_dyn_entry_ctx *dyn_ctx,
 	struct upf_accel_fp_accel_counters *accel_counters;
 	struct upf_accel_fp_data *fp_data = dyn_ctx->fp_data;
 	enum doca_flow_entry_status *entry_status;
-	enum upf_accel_packet_direction pkt_dir;
+	enum parser_pkt_type pkt_type;
 	doca_error_t ret;
 
-	if (entry == dyn_ctx->entries[PKT_DIR_RAN].entry) {
-		pkt_dir = PKT_DIR_RAN;
-	} else if (entry == dyn_ctx->entries[PKT_DIR_WAN].entry) {
-		pkt_dir = PKT_DIR_WAN;
+	if (entry == dyn_ctx->entries[PARSER_PKT_TYPE_TUNNELED].entry) {
+		pkt_type = PARSER_PKT_TYPE_TUNNELED;
+	} else if (entry == dyn_ctx->entries[PARSER_PKT_TYPE_PLAIN].entry) {
+		pkt_type = PARSER_PKT_TYPE_PLAIN;
 	} else {
 		DOCA_LOG_ERR("Unexpected entry");
 		return;
 	}
-	accel_counters = &fp_data->accel_counters[pkt_dir];
-	entry_status = &dyn_ctx->entries[pkt_dir].status;
+	accel_counters = &fp_data->accel_counters[pkt_type];
+	entry_status = &dyn_ctx->entries[pkt_type].status;
 
 	switch (op) {
 	case DOCA_FLOW_ENTRY_OP_AGED:
@@ -169,7 +167,7 @@ static void upf_accel_dyn_entry_cb(struct upf_accel_dyn_entry_ctx *dyn_ctx,
 		break;
 	case DOCA_FLOW_ENTRY_OP_DEL:
 		if (status == DOCA_FLOW_ENTRY_STATUS_SUCCESS) {
-			ret = upf_accel_fp_delete_flow(fp_data, dyn_ctx, pkt_dir);
+			ret = upf_accel_fp_delete_flow(fp_data, dyn_ctx, pkt_type);
 			if (ret != DOCA_SUCCESS) {
 				DOCA_LOG_ERR("Failed to delete accelerated flow");
 				accel_counters->aging_errors++;
@@ -230,9 +228,9 @@ void upf_accel_check_for_valid_entry_aging(struct doca_flow_pipe_entry *entry,
 		upf_accel_static_entry_cb(&entry_ctx->static_ctx, status, op);
 }
 
-void upf_accel_sw_aging_ll_init(struct upf_accel_fp_data *fp_data, enum upf_accel_packet_direction pkt_dir)
+void upf_accel_sw_aging_ll_init(struct upf_accel_fp_data *fp_data, enum parser_pkt_type pkt_type)
 {
-	struct upf_accel_sw_aging_ll *ll = &fp_data->sw_aging_ll[pkt_dir];
+	struct upf_accel_sw_aging_ll *ll = &fp_data->sw_aging_ll[pkt_type];
 
 	ll->head = UPF_ACCEL_SW_AGING_LL_INVALID_NODE;
 	ll->tail = UPF_ACCEL_SW_AGING_LL_INVALID_NODE;
@@ -242,11 +240,11 @@ void upf_accel_sw_aging_ll_init(struct upf_accel_fp_data *fp_data, enum upf_acce
  * Init a SW Aging doubly linked list node
  *
  * @conn [in]: connection descriptor
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  */
-static void upf_accel_sw_aging_ll_node_init(struct upf_accel_entry_ctx *conn, enum upf_accel_packet_direction pkt_dir)
+static void upf_accel_sw_aging_ll_node_init(struct upf_accel_entry_ctx *conn, enum parser_pkt_type pkt_type)
 {
-	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_dir].sw_aging_node;
+	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_type].sw_aging_node;
 
 	node->prev = UPF_ACCEL_SW_AGING_LL_INVALID_NODE;
 	node->next = UPF_ACCEL_SW_AGING_LL_INVALID_NODE;
@@ -268,18 +266,18 @@ static bool upf_accel_sw_aging_ll_node_is_valid(int32_t node_idx)
  *
  * @fp_data [in]: flow processing data
  * @conn [in]: connection descriptor
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @return: true if the node exist, false otherwise
  */
 static bool upf_accel_sw_aging_ll_node_exist(struct upf_accel_fp_data *fp_data,
 					     struct upf_accel_entry_ctx *conn,
-					     enum upf_accel_packet_direction pkt_dir)
+					     enum parser_pkt_type pkt_type)
 {
-	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_dir].sw_aging_node;
+	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_type].sw_aging_node;
 	int32_t conn_idx = conn->dyn_ctx.conn_idx;
 
 	return upf_accel_sw_aging_ll_node_is_valid(node->prev) || upf_accel_sw_aging_ll_node_is_valid(node->next) ||
-	       conn_idx == fp_data->sw_aging_ll[pkt_dir].head || conn_idx == fp_data->sw_aging_ll[pkt_dir].tail;
+	       conn_idx == fp_data->sw_aging_ll[pkt_type].head || conn_idx == fp_data->sw_aging_ll[pkt_type].tail;
 }
 
 /*
@@ -287,35 +285,35 @@ static bool upf_accel_sw_aging_ll_node_exist(struct upf_accel_fp_data *fp_data,
  *
  * @fp_data [in]: flow processing data
  * @conn [in]: connection descriptor
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @return: true if the node existed, false otherwise
  */
 static bool upf_accel_sw_aging_ll_node_remove(struct upf_accel_fp_data *fp_data,
 					      struct upf_accel_entry_ctx *conn,
-					      enum upf_accel_packet_direction pkt_dir)
+					      enum parser_pkt_type pkt_type)
 {
-	int32_t prev = conn->dyn_ctx.entries[pkt_dir].sw_aging_node.prev;
-	int32_t next = conn->dyn_ctx.entries[pkt_dir].sw_aging_node.next;
+	int32_t prev = conn->dyn_ctx.entries[pkt_type].sw_aging_node.prev;
+	int32_t next = conn->dyn_ctx.entries[pkt_type].sw_aging_node.next;
 	int32_t conn_idx = conn->dyn_ctx.conn_idx;
 	struct upf_accel_entry_ctx *tmp_conn;
 
-	if (!upf_accel_sw_aging_ll_node_exist(fp_data, conn, pkt_dir))
+	if (!upf_accel_sw_aging_ll_node_exist(fp_data, conn, pkt_type))
 		return false;
 
 	if (upf_accel_sw_aging_ll_node_is_valid(prev)) {
 		tmp_conn = &fp_data->dyn_tbl_data[prev];
-		tmp_conn->dyn_ctx.entries[pkt_dir].sw_aging_node.next = next;
+		tmp_conn->dyn_ctx.entries[pkt_type].sw_aging_node.next = next;
 	}
 	if (upf_accel_sw_aging_ll_node_is_valid(next)) {
 		tmp_conn = &fp_data->dyn_tbl_data[next];
-		tmp_conn->dyn_ctx.entries[pkt_dir].sw_aging_node.prev = prev;
+		tmp_conn->dyn_ctx.entries[pkt_type].sw_aging_node.prev = prev;
 	}
-	if (fp_data->sw_aging_ll[pkt_dir].tail == conn_idx)
-		fp_data->sw_aging_ll[pkt_dir].tail = prev;
-	if (fp_data->sw_aging_ll[pkt_dir].head == conn_idx)
-		fp_data->sw_aging_ll[pkt_dir].head = next;
+	if (fp_data->sw_aging_ll[pkt_type].tail == conn_idx)
+		fp_data->sw_aging_ll[pkt_type].tail = prev;
+	if (fp_data->sw_aging_ll[pkt_type].head == conn_idx)
+		fp_data->sw_aging_ll[pkt_type].head = next;
 
-	fp_data->unaccel_counters[pkt_dir].current--;
+	fp_data->unaccel_counters[pkt_type].current--;
 	return true;
 }
 
@@ -324,31 +322,31 @@ static bool upf_accel_sw_aging_ll_node_remove(struct upf_accel_fp_data *fp_data,
  *
  * @fp_data [in]: flow processing data
  * @conn [in]: connection descriptor
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  */
 static void upf_accel_sw_aging_ll_node_insert(struct upf_accel_fp_data *fp_data,
 					      struct upf_accel_entry_ctx *conn,
-					      enum upf_accel_packet_direction pkt_dir)
+					      enum parser_pkt_type pkt_type)
 {
-	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_dir].sw_aging_node;
-	int32_t old_head = fp_data->sw_aging_ll[pkt_dir].head;
+	struct upf_accel_sw_aging_ll_node *node = &conn->dyn_ctx.entries[pkt_type].sw_aging_node;
+	int32_t old_head = fp_data->sw_aging_ll[pkt_type].head;
 	int32_t conn_idx = conn->dyn_ctx.conn_idx;
 	struct upf_accel_entry_ctx *tmp_conn;
 
 	if (upf_accel_sw_aging_ll_node_is_valid(old_head)) {
 		tmp_conn = &fp_data->dyn_tbl_data[old_head];
-		tmp_conn->dyn_ctx.entries[pkt_dir].sw_aging_node.prev = conn_idx;
+		tmp_conn->dyn_ctx.entries[pkt_type].sw_aging_node.prev = conn_idx;
 	}
 
 	node->prev = UPF_ACCEL_SW_AGING_LL_INVALID_NODE;
 	node->next = old_head;
 	node->timestamp = rte_rdtsc();
 
-	fp_data->sw_aging_ll[pkt_dir].head = conn_idx;
-	if (!upf_accel_sw_aging_ll_node_is_valid(fp_data->sw_aging_ll[pkt_dir].tail))
-		fp_data->sw_aging_ll[pkt_dir].tail = conn_idx;
+	fp_data->sw_aging_ll[pkt_type].head = conn_idx;
+	if (!upf_accel_sw_aging_ll_node_is_valid(fp_data->sw_aging_ll[pkt_type].tail))
+		fp_data->sw_aging_ll[pkt_type].tail = conn_idx;
 
-	fp_data->unaccel_counters[pkt_dir].current++;
+	fp_data->unaccel_counters[pkt_type].current++;
 }
 
 /*
@@ -360,16 +358,16 @@ static void upf_accel_sw_aging_ll_node_insert(struct upf_accel_fp_data *fp_data,
  *
  * @fp_data [in]: flow processing data
  * @conn [in]: connection descriptor
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  */
 static void upf_accel_sw_aging_ll_node_move_to_head(struct upf_accel_fp_data *fp_data,
 						    struct upf_accel_entry_ctx *conn,
-						    enum upf_accel_packet_direction pkt_dir)
+						    enum parser_pkt_type pkt_type)
 {
-	if (!upf_accel_sw_aging_ll_node_remove(fp_data, conn, pkt_dir))
-		fp_data->unaccel_counters[pkt_dir].total++;
+	if (!upf_accel_sw_aging_ll_node_remove(fp_data, conn, pkt_type))
+		fp_data->unaccel_counters[pkt_type].total++;
 
-	upf_accel_sw_aging_ll_node_insert(fp_data, conn, pkt_dir);
+	upf_accel_sw_aging_ll_node_insert(fp_data, conn, pkt_type);
 }
 
 /*
@@ -378,12 +376,12 @@ static void upf_accel_sw_aging_ll_node_move_to_head(struct upf_accel_fp_data *fp
  * has not yet aged.
  *
  * @fp_data [in]: flow processing data
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  */
-static void upf_accel_sw_aging_ll_scan(struct upf_accel_fp_data *fp_data, enum upf_accel_packet_direction pkt_dir)
+static void upf_accel_sw_aging_ll_scan(struct upf_accel_fp_data *fp_data, enum parser_pkt_type pkt_type)
 {
 	uint64_t aging_period_tsc = fp_data->ctx->upf_accel_cfg->sw_aging_time_sec * rte_get_tsc_hz();
-	int32_t curr = fp_data->sw_aging_ll[pkt_dir].tail;
+	int32_t curr = fp_data->sw_aging_ll[pkt_type].tail;
 	struct upf_accel_sw_aging_ll_node *node;
 	uint64_t tsc = rte_rdtsc();
 	struct upf_accel_entry_ctx *conn;
@@ -391,22 +389,22 @@ static void upf_accel_sw_aging_ll_scan(struct upf_accel_fp_data *fp_data, enum u
 
 	while (upf_accel_sw_aging_ll_node_is_valid(curr)) {
 		conn = &fp_data->dyn_tbl_data[curr];
-		node = &conn->dyn_ctx.entries[pkt_dir].sw_aging_node;
+		node = &conn->dyn_ctx.entries[pkt_type].sw_aging_node;
 
 		if (tsc - node->timestamp < aging_period_tsc)
 			break;
 
-		ret = upf_accel_fp_delete_flow(fp_data, &conn->dyn_ctx, pkt_dir);
+		ret = upf_accel_fp_delete_flow(fp_data, &conn->dyn_ctx, pkt_type);
 		if (ret != DOCA_SUCCESS) {
-			fp_data->unaccel_counters[pkt_dir].aging_errors++;
+			fp_data->unaccel_counters[pkt_type].aging_errors++;
 			DOCA_LOG_ERR("Failed to delete unaccelerated flow");
 		}
 
-		fp_data->unaccel_counters[pkt_dir].current--;
+		fp_data->unaccel_counters[pkt_type].current--;
 		curr = node->prev;
 	}
 
-	fp_data->sw_aging_ll[pkt_dir].tail = curr;
+	fp_data->sw_aging_ll[pkt_type].tail = curr;
 }
 
 /*
@@ -454,7 +452,7 @@ static inline bool ipv4_masked_is_matching(const struct upf_accel_ip_addr *maske
  * @ip_proto [out]: pointer to store the IP protocol
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t upf_accel_5t_match(struct upf_accel_conn_parser_ctx *parse_ctx,
+static doca_error_t upf_accel_5t_match(struct conn_parser_ctx *parse_ctx,
 				       uint32_t *src_ip,
 				       uint32_t *dst_ip,
 				       uint16_t *src_port,
@@ -491,8 +489,7 @@ static doca_error_t upf_accel_5t_match(struct upf_accel_conn_parser_ctx *parse_c
  * @match [out]: pointer to store the result at
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t upf_accel_gtpu_match(struct upf_accel_tun_parser_ctx *tun_parse_ctx,
-					 struct upf_accel_match_8t *match)
+static doca_error_t upf_accel_gtpu_match(struct tun_parser_ctx *tun_parse_ctx, struct upf_accel_match_8t *match)
 {
 	doca_error_t ret;
 
@@ -533,12 +530,12 @@ static doca_error_t upf_accel_gtpu_match(struct upf_accel_tun_parser_ctx *tun_pa
  */
 static doca_error_t upf_accel_ran_match(uint8_t *data,
 					uint8_t *data_end,
-					struct upf_accel_tun_parser_ctx *parse_ctx,
+					struct tun_parser_ctx *parse_ctx,
 					struct upf_accel_match_8t *match)
 {
 	doca_error_t ret;
 
-	ret = upf_accel_ran_parse(data, data_end, parse_ctx);
+	ret = tunnel_parse(data, data_end, parse_ctx);
 	if (ret != DOCA_SUCCESS)
 		return ret;
 
@@ -556,12 +553,12 @@ static doca_error_t upf_accel_ran_match(uint8_t *data,
  */
 static doca_error_t upf_accel_wan_match(uint8_t *data,
 					uint8_t *data_end,
-					struct upf_accel_conn_parser_ctx *parse_ctx,
+					struct conn_parser_ctx *parse_ctx,
 					struct upf_accel_match_5t *match)
 {
 	doca_error_t ret;
 
-	ret = upf_accel_wan_parse(data, data_end, parse_ctx);
+	ret = plain_parse(data, data_end, parse_ctx);
 	if (ret != DOCA_SUCCESS)
 		return ret;
 
@@ -653,7 +650,7 @@ static const struct upf_accel_pdr *upf_accel_ran_pdr_lookup(const struct upf_acc
  * @pkt [in]: pointer to the pkt
  * @parse_ctx [in]: pointer to the parser context
  */
-static void upf_accel_decap(struct rte_mbuf *pkt, struct upf_accel_tun_parser_ctx *parse_ctx)
+static void upf_accel_decap(struct rte_mbuf *pkt, struct tun_parser_ctx *parse_ctx)
 {
 	const uint8_t src_mac[] = UPF_ACCEL_SRC_MAC;
 	const uint8_t dst_mac[] = UPF_ACCEL_DST_MAC;
@@ -817,16 +814,16 @@ static doca_error_t upf_accel_pipe_5t_accel(struct upf_accel_ctx *ctx,
 /*
  * Parse the packet and fill in the match structure.
  *
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @pkt [in]: pointer to the pkt
  * @match [in]: software flow match
  * @parse_ctx [out]: pointer to the parser context
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t upf_accel_fp_pkt_match(enum upf_accel_packet_direction pkt_dir,
+static doca_error_t upf_accel_fp_pkt_match(enum parser_pkt_type pkt_type,
 					   struct rte_mbuf *pkt,
 					   struct upf_accel_match_8t *match,
-					   struct upf_accel_tun_parser_ctx *parse_ctx)
+					   struct tun_parser_ctx *parse_ctx)
 {
 	uint8_t *data_beg = rte_pktmbuf_mtod(pkt, uint8_t *);
 	uint8_t *data_end = data_beg + rte_pktmbuf_data_len(pkt);
@@ -834,7 +831,7 @@ static doca_error_t upf_accel_fp_pkt_match(enum upf_accel_packet_direction pkt_d
 
 	memset(match, 0, sizeof(*match));
 
-	if (pkt_dir == PKT_DIR_RAN) {
+	if (pkt_type == PARSER_PKT_TYPE_TUNNELED) {
 		ret = upf_accel_ran_match(data_beg, data_end, parse_ctx, match);
 		if (ret != DOCA_SUCCESS) {
 			DOCA_LOG_DBG("Failed to parse RAN packet status %u", ret);
@@ -852,19 +849,19 @@ static doca_error_t upf_accel_fp_pkt_match(enum upf_accel_packet_direction pkt_d
 }
 
 /*
- * Fetch packet direction from metadata.
+ * Fetch packet type from metadata.
  *
  * @pkt [in]: pointer to the pkt
- * @return: packet direction (ran / wan)
+ * @return: packet type (ran / wan)
  */
-static enum upf_accel_packet_direction upf_accel_fp_fetch_pkt_dir(const struct rte_mbuf *pkt)
+static enum parser_pkt_type upf_accel_fp_fetch_pkt_type(const struct rte_mbuf *pkt)
 {
 	const uint32_t md = *RTE_FLOW_DYNF_METADATA(pkt);
 	const uint32_t dir = md & UPF_ACCEL_META_PKT_DIR_MASK;
 
 	assert(dir == UPF_ACCEL_META_PKT_DIR_UL || dir == UPF_ACCEL_META_PKT_DIR_DL);
 
-	return (dir == UPF_ACCEL_META_PKT_DIR_UL) ? PKT_DIR_RAN : PKT_DIR_WAN;
+	return (dir == UPF_ACCEL_META_PKT_DIR_UL) ? PARSER_PKT_TYPE_TUNNELED : PARSER_PKT_TYPE_PLAIN;
 }
 
 /*
@@ -879,10 +876,10 @@ static void upf_accel_fp_pkts_match(struct upf_accel_fp_burst_ctx *burst_ctx, st
 	uint16_t i;
 
 	for (i = 0; i < burst_ctx->rx_pkts_cnt; i++) {
-		burst_ctx->pkts_dir[i] = upf_accel_fp_fetch_pkt_dir(burst_ctx->rx_pkts[i]);
+		burst_ctx->pkts_type[i] = upf_accel_fp_fetch_pkt_type(burst_ctx->rx_pkts[i]);
 		burst_ctx->matches[i] = &match_mem[i];
 
-		ret = upf_accel_fp_pkt_match(burst_ctx->pkts_dir[i],
+		ret = upf_accel_fp_pkt_match(burst_ctx->pkts_type[i],
 					     burst_ctx->rx_pkts[i],
 					     burst_ctx->matches[i],
 					     &burst_ctx->parse_ctxs[i]);
@@ -907,22 +904,23 @@ static bool upf_accel_fp_tunnel_eq(struct upf_accel_match_tun *tunnel1, struct u
  * PDR lookup according to 5T match
  *
  * @fp_data [in]: flow processing data
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @match [in]: software flow match
  * @pdr_out [out]: pdr
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_fp_pdr_lookup(struct upf_accel_fp_data *fp_data,
-					    enum upf_accel_packet_direction pkt_dir,
+					    enum parser_pkt_type pkt_type,
 					    struct upf_accel_match_8t *match,
 					    const struct upf_accel_pdr **pdr_out)
 {
 	const struct upf_accel_pdr *pdr;
 
-	pdr = pkt_dir == PKT_DIR_RAN ? upf_accel_ran_pdr_lookup(fp_data->ctx->upf_accel_cfg->pdrs, match) :
-				       upf_accel_wan_pdr_lookup(fp_data->ctx->upf_accel_cfg->pdrs, &match->inner);
+	pdr = pkt_type == PARSER_PKT_TYPE_TUNNELED ?
+		      upf_accel_ran_pdr_lookup(fp_data->ctx->upf_accel_cfg->pdrs, match) :
+		      upf_accel_wan_pdr_lookup(fp_data->ctx->upf_accel_cfg->pdrs, &match->inner);
 	if (!pdr) {
-		DOCA_LOG_DBG("Failed to lookup PDR for packet direction %u", pkt_dir);
+		DOCA_LOG_DBG("Failed to lookup PDR for packet type %u", pkt_type);
 		return DOCA_ERROR_NOT_FOUND;
 	}
 	*pdr_out = pdr;
@@ -934,14 +932,14 @@ static doca_error_t upf_accel_fp_pdr_lookup(struct upf_accel_fp_data *fp_data,
  * Get existing or initialize a new instance of dynamic connection.
  *
  * @fp_data [in]: flow processing data
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @match [in]: software flow match
  * @conn_idx [in]: existing connection position in dynamic table or a negative value
  * @conn_out [out]: resulting connection descriptor
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_fp_conn_lookup(struct upf_accel_fp_data *fp_data,
-					     enum upf_accel_packet_direction pkt_dir,
+					     enum parser_pkt_type pkt_type,
 					     struct upf_accel_match_8t *match,
 					     int32_t conn_idx,
 					     struct upf_accel_entry_ctx **conn_out)
@@ -952,14 +950,14 @@ static doca_error_t upf_accel_fp_conn_lookup(struct upf_accel_fp_data *fp_data,
 	hash_sig_t hash;
 
 	if (conn_idx < 0) {
-		result = upf_accel_fp_pdr_lookup(fp_data, pkt_dir, match, &pdr);
+		result = upf_accel_fp_pdr_lookup(fp_data, pkt_type, match, &pdr);
 		if (result != DOCA_SUCCESS)
 			return result;
 
 		hash = rte_hash_hash(fp_data->dyn_tbl, &match->inner);
 		conn_idx = rte_hash_add_key_with_hash(fp_data->dyn_tbl, &match->inner, hash);
 		if (conn_idx < 0) {
-			fp_data->accel_failed_counters[pkt_dir].errors++;
+			fp_data->accel_failed_counters[pkt_type].errors++;
 			DOCA_LOG_DBG("Couldn't create flow, No space available in the ht, err %d", conn_idx);
 			return DOCA_ERROR_FULL;
 		}
@@ -968,17 +966,17 @@ static doca_error_t upf_accel_fp_conn_lookup(struct upf_accel_fp_data *fp_data,
 		memset(conn, 0, sizeof(*conn));
 		conn->dyn_ctx.match = *match;
 		conn->dyn_ctx.hash = hash;
-		conn->dyn_ctx.pdr_id[pkt_dir] = pdr->id;
+		conn->dyn_ctx.pdr_id[pkt_type] = pdr->id;
 		conn->dyn_ctx.fp_data = fp_data;
 		conn->dyn_ctx.conn_idx = conn_idx;
-		conn->dyn_ctx.flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_PENDING;
+		conn->dyn_ctx.flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_PENDING;
 
-		upf_accel_sw_aging_ll_node_init(conn, pkt_dir);
+		upf_accel_sw_aging_ll_node_init(conn, pkt_type);
 	} else {
 		conn = &fp_data->dyn_tbl_data[conn_idx];
 
-		if (pkt_dir == PKT_DIR_RAN) {
-			if (upf_accel_flow_is_alive(conn->dyn_ctx.flow_status[pkt_dir]) &&
+		if (pkt_type == PARSER_PKT_TYPE_TUNNELED) {
+			if (upf_accel_flow_is_alive(conn->dyn_ctx.flow_status[pkt_type]) &&
 			    !upf_accel_fp_tunnel_eq(&match->outer, &conn->dyn_ctx.match.outer)) {
 				DOCA_LOG_DBG("Detected packet with same 5tuple as connection with different tunnel");
 				return DOCA_ERROR_ALREADY_EXIST;
@@ -988,17 +986,17 @@ static doca_error_t upf_accel_fp_conn_lookup(struct upf_accel_fp_data *fp_data,
 
 		/*
 		 * The connection was already initialized by a packet arriving
-		 * from the opposite direction; now, we need to complete the
-		 * initialization for the other direction.
+		 * from the opposite type; now, we need to complete the
+		 * initialization for the other type.
 		 */
-		if (conn->dyn_ctx.flow_status[pkt_dir] == UPF_ACCEL_FLOW_STATUS_NONE) {
-			result = upf_accel_fp_pdr_lookup(fp_data, pkt_dir, match, &pdr);
+		if (conn->dyn_ctx.flow_status[pkt_type] == UPF_ACCEL_FLOW_STATUS_NONE) {
+			result = upf_accel_fp_pdr_lookup(fp_data, pkt_type, match, &pdr);
 			if (result != DOCA_SUCCESS)
 				return result;
 
-			conn->dyn_ctx.flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_PENDING;
-			conn->dyn_ctx.pdr_id[pkt_dir] = pdr->id;
-			upf_accel_sw_aging_ll_node_init(conn, pkt_dir);
+			conn->dyn_ctx.flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_PENDING;
+			conn->dyn_ctx.pdr_id[pkt_type] = pdr->id;
+			upf_accel_sw_aging_ll_node_init(conn, pkt_type);
 		}
 	}
 
@@ -1034,7 +1032,7 @@ static void upf_accel_fp_conns_lookup(struct upf_accel_fp_data *fp_data, struct 
 			continue;
 
 		ret = upf_accel_fp_conn_lookup(fp_data,
-					       burst_ctx->pkts_dir[i],
+					       burst_ctx->pkts_type[i],
 					       burst_ctx->matches[i],
 					       conn_idxs[i],
 					       &burst_ctx->conns[i]);
@@ -1048,54 +1046,54 @@ static void upf_accel_fp_conns_lookup(struct upf_accel_fp_data *fp_data, struct 
  *
  * @fp_data [in]: flow processing data
  * @port_id [in]: port id
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @match [in]: software flow match
  * @conn [in]: connection descriptor
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_fp_flow_accel(struct upf_accel_fp_data *fp_data,
 					    enum upf_accel_port port_id,
-					    enum upf_accel_packet_direction pkt_dir,
+					    enum parser_pkt_type pkt_type,
 					    struct upf_accel_match_8t *match,
 					    struct upf_accel_entry_ctx *conn)
 {
 	doca_error_t ret;
 
-	if (conn->dyn_ctx.flow_status[pkt_dir] == UPF_ACCEL_FLOW_STATUS_ACCELERATED)
+	if (conn->dyn_ctx.flow_status[pkt_type] == UPF_ACCEL_FLOW_STATUS_ACCELERATED)
 		return DOCA_ERROR_ALREADY_EXIST;
-	if (unlikely(conn->dyn_ctx.flow_status[pkt_dir] == UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION))
+	if (unlikely(conn->dyn_ctx.flow_status[pkt_type] == UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION))
 		return DOCA_SUCCESS;
 
-	if (upf_accel_flow_is_alive(conn->dyn_ctx.flow_status[pkt_dir]) &&
-	    (conn->dyn_ctx.cnt_pkts[pkt_dir] + 1) < fp_data->ctx->upf_accel_cfg->dpi_threshold) {
-		conn->dyn_ctx.flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_UNACCELERATED;
+	if (upf_accel_flow_is_alive(conn->dyn_ctx.flow_status[pkt_type]) &&
+	    (conn->dyn_ctx.cnt_pkts[pkt_type] + 1) < fp_data->ctx->upf_accel_cfg->dpi_threshold) {
+		conn->dyn_ctx.flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_UNACCELERATED;
 		return DOCA_SUCCESS;
 	}
 
-	ret = pkt_dir == PKT_DIR_RAN ? upf_accel_pipe_8t_accel(fp_data->ctx,
-							       port_id,
-							       fp_data->queue_id,
-							       match,
-							       conn->dyn_ctx.pdr_id[pkt_dir],
-							       conn,
-							       &conn->dyn_ctx.entries[pkt_dir].entry) :
-				       upf_accel_pipe_5t_accel(fp_data->ctx,
-							       port_id,
-							       fp_data->queue_id,
-							       &match->inner,
-							       conn->dyn_ctx.pdr_id[pkt_dir],
-							       conn,
-							       &conn->dyn_ctx.entries[pkt_dir].entry);
+	ret = pkt_type == PARSER_PKT_TYPE_TUNNELED ? upf_accel_pipe_8t_accel(fp_data->ctx,
+									     port_id,
+									     fp_data->queue_id,
+									     match,
+									     conn->dyn_ctx.pdr_id[pkt_type],
+									     conn,
+									     &conn->dyn_ctx.entries[pkt_type].entry) :
+						     upf_accel_pipe_5t_accel(fp_data->ctx,
+									     port_id,
+									     fp_data->queue_id,
+									     &match->inner,
+									     conn->dyn_ctx.pdr_id[pkt_type],
+									     conn,
+									     &conn->dyn_ctx.entries[pkt_type].entry);
 	switch (ret) {
 	case DOCA_SUCCESS:
-		conn->dyn_ctx.flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_ACCELERATED;
-		upf_accel_sw_aging_ll_node_remove(fp_data, conn, pkt_dir);
+		conn->dyn_ctx.flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_ACCELERATED;
+		upf_accel_sw_aging_ll_node_remove(fp_data, conn, pkt_type);
 		break;
 	default:
-		conn->dyn_ctx.flow_status[pkt_dir] = UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION;
-		fp_data->accel_failed_counters[pkt_dir].current++;
-		fp_data->accel_failed_counters[pkt_dir].total++;
-		DOCA_LOG_DBG("Failed to accelerate connection on port %u, direction %u.", port_id, pkt_dir);
+		conn->dyn_ctx.flow_status[pkt_type] = UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION;
+		fp_data->accel_failed_counters[pkt_type].current++;
+		fp_data->accel_failed_counters[pkt_type].total++;
+		DOCA_LOG_DBG("Failed to accelerate connection on port %u, type %u.", port_id, pkt_type);
 	}
 
 	return DOCA_SUCCESS;
@@ -1124,7 +1122,7 @@ static void upf_accel_fp_flows_accel(struct upf_accel_fp_data *fp_data,
 				     enum upf_accel_port rx_port_id,
 				     struct upf_accel_fp_burst_ctx *burst_ctx)
 {
-	enum upf_accel_packet_direction pkt_dir;
+	enum parser_pkt_type pkt_type;
 	struct upf_accel_entry_ctx *conn;
 	struct rte_mbuf *pkt;
 	doca_error_t ret;
@@ -1136,22 +1134,22 @@ static void upf_accel_fp_flows_accel(struct upf_accel_fp_data *fp_data,
 
 		conn = burst_ctx->conns[i];
 		pkt = burst_ctx->rx_pkts[i];
-		pkt_dir = burst_ctx->pkts_dir[i];
+		pkt_type = burst_ctx->pkts_type[i];
 
-		ret = upf_accel_fp_flow_accel(fp_data, rx_port_id, pkt_dir, burst_ctx->matches[i], conn);
+		ret = upf_accel_fp_flow_accel(fp_data, rx_port_id, pkt_type, burst_ctx->matches[i], conn);
 		if (ret == DOCA_ERROR_ALREADY_EXIST)
-			DOCA_LOG_DBG("Got a sneaker packet on core %u, port %u, direction %u.",
+			DOCA_LOG_DBG("Got a sneaker packet on core %u, port %u, type %u.",
 				     fp_data->queue_id,
 				     rx_port_id,
-				     pkt_dir);
+				     pkt_type);
 
-		if (conn->dyn_ctx.cnt_pkts[pkt_dir])
+		if (conn->dyn_ctx.cnt_pkts[pkt_type])
 			upf_accel_packet_byte_counter_inc(&fp_data->sw_counters.ex_conn, pkt);
 		else
 			upf_accel_packet_byte_counter_inc(&fp_data->sw_counters.new_conn, pkt);
 
-		conn->dyn_ctx.cnt_pkts[pkt_dir]++;
-		conn->dyn_ctx.cnt_bytes[pkt_dir] += rte_pktmbuf_pkt_len(pkt);
+		conn->dyn_ctx.cnt_pkts[pkt_type]++;
+		conn->dyn_ctx.cnt_bytes[pkt_type] += rte_pktmbuf_pkt_len(pkt);
 	}
 }
 
@@ -1176,21 +1174,21 @@ static void upf_accel_fp_pkt_err_drop(struct upf_accel_fp_data *fp_data, struct 
 static void upf_accel_md_set(struct rte_mbuf *pkt, uint32_t md)
 {
 	assert(md < UPF_ACCEL_MAX_NUM_PDR);
-	*RTE_FLOW_DYNF_METADATA(pkt) = UPF_ACCEL_META_FROM_SW | md;
+	*RTE_FLOW_DYNF_METADATA(pkt) = md;
 	pkt->ol_flags |= RTE_MBUF_DYNFLAG_TX_METADATA;
 }
 
 /*
  * Check if the flow is not in an accelerated status
  *
- * @pkt_dir [in]: packet direction
+ * @pkt_type [in]: packet type
  * @conn [in]: connection descriptor
  * @return: true if it`s unaccelerated, false otherwise
  */
-static bool is_flow_unaccelerated(enum upf_accel_packet_direction pkt_dir, struct upf_accel_entry_ctx *conn)
+static bool is_flow_unaccelerated(enum parser_pkt_type pkt_type, struct upf_accel_entry_ctx *conn)
 {
-	return (conn->dyn_ctx.flow_status[pkt_dir] == UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION) ||
-	       (conn->dyn_ctx.flow_status[pkt_dir] == UPF_ACCEL_FLOW_STATUS_UNACCELERATED);
+	return (conn->dyn_ctx.flow_status[pkt_type] == UPF_ACCEL_FLOW_STATUS_FAILED_ACCELERATION) ||
+	       (conn->dyn_ctx.flow_status[pkt_type] == UPF_ACCEL_FLOW_STATUS_UNACCELERATED);
 }
 
 /*
@@ -1201,7 +1199,7 @@ static bool is_flow_unaccelerated(enum upf_accel_packet_direction pkt_dir, struc
  */
 static void upf_accel_fp_burst_postprocess(struct upf_accel_fp_data *fp_data, struct upf_accel_fp_burst_ctx *burst_ctx)
 {
-	enum upf_accel_packet_direction pkt_dir;
+	enum parser_pkt_type pkt_type;
 	struct upf_accel_entry_ctx *conn;
 	struct upf_accel_match_8t *match;
 	struct rte_mbuf *pkt;
@@ -1211,7 +1209,7 @@ static void upf_accel_fp_burst_postprocess(struct upf_accel_fp_data *fp_data, st
 		pkt = burst_ctx->rx_pkts[i];
 		conn = burst_ctx->conns[i];
 		match = burst_ctx->matches[i];
-		pkt_dir = burst_ctx->pkts_dir[i];
+		pkt_type = burst_ctx->pkts_type[i];
 
 		if (burst_ctx->pkts_drop[i]) {
 			upf_accel_fp_pkt_err_drop(fp_data, pkt);
@@ -1219,9 +1217,9 @@ static void upf_accel_fp_burst_postprocess(struct upf_accel_fp_data *fp_data, st
 		}
 
 		DOCA_LOG_DBG(
-			"Core %u, dir %u parsed 8t tun_ip=%x teid=%u qfi=%hhu ue_ip=%x extern_ip=%x ue_port=%hu extern_port=%hu ip_proto=%hhu pdr=%u ran_pkts=%lu ran_bytes=%lu, wan_pkts=%lu, wan_bytes=%lu",
+			"Core %u, type %u parsed 8t tun_ip=%x teid=%u qfi=%hhu ue_ip=%x extern_ip=%x ue_port=%hu extern_port=%hu ip_proto=%hhu pdr=%u ran_pkts=%lu ran_bytes=%lu, wan_pkts=%lu, wan_bytes=%lu",
 			rte_lcore_id(),
-			pkt_dir,
+			pkt_type,
 			match->outer.te_ip,
 			match->outer.te_id,
 			match->outer.qfi,
@@ -1230,19 +1228,19 @@ static void upf_accel_fp_burst_postprocess(struct upf_accel_fp_data *fp_data, st
 			match->inner.ue_port,
 			match->inner.extern_port,
 			match->inner.ip_proto,
-			conn->dyn_ctx.pdr_id[pkt_dir],
-			conn->dyn_ctx.cnt_pkts[PKT_DIR_RAN],
-			conn->dyn_ctx.cnt_bytes[PKT_DIR_RAN],
-			conn->dyn_ctx.cnt_pkts[PKT_DIR_WAN],
-			conn->dyn_ctx.cnt_bytes[PKT_DIR_WAN]);
+			conn->dyn_ctx.pdr_id[pkt_type],
+			conn->dyn_ctx.cnt_pkts[PARSER_PKT_TYPE_TUNNELED],
+			conn->dyn_ctx.cnt_bytes[PARSER_PKT_TYPE_TUNNELED],
+			conn->dyn_ctx.cnt_pkts[PARSER_PKT_TYPE_PLAIN],
+			conn->dyn_ctx.cnt_bytes[PARSER_PKT_TYPE_PLAIN]);
 
-		if (pkt_dir == PKT_DIR_RAN)
+		if (pkt_type == PARSER_PKT_TYPE_TUNNELED)
 			upf_accel_decap(pkt, &burst_ctx->parse_ctxs[i]);
 
-		if (is_flow_unaccelerated(pkt_dir, conn))
-			upf_accel_sw_aging_ll_node_move_to_head(fp_data, conn, pkt_dir);
+		if (is_flow_unaccelerated(pkt_type, conn))
+			upf_accel_sw_aging_ll_node_move_to_head(fp_data, conn, pkt_type);
 
-		upf_accel_md_set(pkt, conn->dyn_ctx.pdr_id[pkt_dir]);
+		upf_accel_md_set(pkt, conn->dyn_ctx.pdr_id[pkt_type]);
 		burst_ctx->tx_pkts[burst_ctx->tx_pkts_cnt++] = burst_ctx->rx_pkts[i];
 	}
 }
@@ -1448,8 +1446,8 @@ void upf_accel_fp_loop(struct upf_accel_fp_data *fp_data)
 	while (!force_quit) {
 		upf_accel_fp_run(fp_data);
 
-		upf_accel_sw_aging_ll_scan(fp_data, PKT_DIR_RAN);
-		upf_accel_sw_aging_ll_scan(fp_data, PKT_DIR_WAN);
+		upf_accel_sw_aging_ll_scan(fp_data, PARSER_PKT_TYPE_TUNNELED);
+		upf_accel_sw_aging_ll_scan(fp_data, PARSER_PKT_TYPE_PLAIN);
 
 		result = handle_exceeds_quotas(fp_data);
 		if (result != DOCA_SUCCESS) {

@@ -53,3 +53,34 @@ lib_psp_gateway_grpc = static_library('psp_gateway_grpc',
 dependency_psp_gateway_grpc = declare_dependency(
     link_with: lib_psp_gateway_grpc,
     include_directories: lib_psp_gateway_grpc.private_dir_include())
+
+# Generate files also for Python bindings
+protobuf_gen_py = generator(protoc, \
+                output    : ['@BASENAME@_pb2.py'],
+                arguments : ['--proto_path=@CURRENT_SOURCE_DIR@',
+                    '--python_out=@BUILD_DIR@',
+                    '@INPUT@'])
+
+grpc_gen_py = generator(protoc, \
+            output    : ['@BASENAME@_pb2_grpc.py'],
+            arguments : ['--proto_path=@CURRENT_SOURCE_DIR@',
+                '--grpc_out=@BUILD_DIR@',
+                '--plugin=protoc-gen-grpc=' + grpc_py_plugin.full_path(),
+                '@INPUT@'])
+
+psp_gateway_generated_proto_py = protobuf_gen_py.process('psp_gateway.proto')
+psp_gateway_generated_grpc_py = grpc_gen_py.process('psp_gateway.proto')
+
+python_targets = [
+    [APP_NAME + '_py_proto', psp_gateway_generated_proto_py],
+    [APP_NAME + '_py_grpc', psp_gateway_generated_grpc_py]
+]
+
+# Hack to force the generation of non-executable generated files
+foreach gen : python_targets
+    py_proc = custom_target(gen[0],
+                command: [ python_generator, '@INPUT@', '@OUTPUT@' ],
+                input : gen[1],
+                output : '@BASENAME@.py',
+                build_by_default : true)
+endforeach

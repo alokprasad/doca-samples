@@ -97,6 +97,15 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
  */
 doca_error_t handle_unsecured_packets_received(struct rte_mbuf **packet, struct ipsec_security_gw_core_ctx *ctx);
 
+/*
+ * Bind encrypt IDs to the secure port
+ *
+ * @nb_rules [in]: number of decrypt rules
+ * @port [in]: secure port pointer
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

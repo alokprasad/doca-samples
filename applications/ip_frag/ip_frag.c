@@ -151,6 +151,23 @@ static doca_error_t ip_frag_mbuf_chain_callback(void *param, void *config)
 }
 
 /*
+ * Callback to handle hardware checksum
+ *
+ * @param [in]: size integer.
+ * @config [in]: Ip_frag config.
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t ip_frag_mbuf_hw_cksum_callback(void *param, void *config)
+{
+	const bool hw_cksum_disable = *(const bool *)param;
+	struct ip_frag_config *cfg = config;
+
+	cfg->hw_cksum = !hw_cksum_disable;
+
+	return DOCA_SUCCESS;
+}
+
+/*
  * Handle application parameters registration
  *
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
@@ -175,8 +192,8 @@ static doca_error_t ip_frag_register_params(void)
 	doca_argp_param_set_description(
 		app_mode_param,
 		"Ip_frag application mode."
-		" Bidirectional mode forwards packets between a single reassembly port and a single fragmentation port."
-		" Multiport mode forwards packets between two pairs of reassembly and fragmentation ports."
+		" Bidirectional mode forwards packets between a single reassembly port and a single fragmentation port (two ports in total)."
+		" Multiport mode forwards packets between two pairs of reassembly and fragmentation ports (four ports in total)."
 		" For more information consult DOCA IP Fragmentation Application Guide."
 		" Format: bidir, multiport");
 	doca_argp_param_set_callback(app_mode_param, ip_frag_mode_callback);
@@ -251,8 +268,26 @@ static doca_error_t ip_frag_register_params(void)
 	}
 	doca_argp_param_set_short_name(mbuf_chain_param, "c");
 	doca_argp_param_set_long_name(mbuf_chain_param, "mbuf-chain");
-	doca_argp_param_set_description(mbuf_chain_param, "Enable mbuf chaining");
+	doca_argp_param_set_description(mbuf_chain_param,
+					"Enable mbuf chaining (required for IPv6 fragmentation support)");
 	doca_argp_param_set_callback(mbuf_chain_param, ip_frag_mbuf_chain_callback);
+	doca_argp_param_set_type(mbuf_chain_param, DOCA_ARGP_TYPE_BOOLEAN);
+	result = doca_argp_register_param(mbuf_chain_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	/* Create and register ip_frag hardware checksum toggle */
+	result = doca_argp_param_create(&mbuf_chain_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(mbuf_chain_param, "w");
+	doca_argp_param_set_long_name(mbuf_chain_param, "cksum-accel-disable");
+	doca_argp_param_set_description(mbuf_chain_param, "Disable hardware-accelerated checksum calculation");
+	doca_argp_param_set_callback(mbuf_chain_param, ip_frag_mbuf_hw_cksum_callback);
 	doca_argp_param_set_type(mbuf_chain_param, DOCA_ARGP_TYPE_BOOLEAN);
 	result = doca_argp_register_param(mbuf_chain_param);
 	if (result != DOCA_SUCCESS) {
@@ -277,6 +312,55 @@ static doca_error_t ip_frag_dpdk_config_num_ports(struct application_dpdk_config
 }
 
 /*
+ * Set DPDK port tx offload flags
+ *
+ * @cfg [in]: application config
+ * @dpdk_cfg [out]: application DPDK configuration values
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t ip_frag_dpdk_config_tx_offloads(struct ip_frag_config *cfg,
+						    struct application_dpdk_config *dpdk_config)
+{
+	if (cfg->mbuf_chain)
+		dpdk_config->port_config.tx_offloads |= RTE_ETH_TX_OFFLOAD_MULTI_SEGS;
+	if (cfg->hw_cksum)
+		dpdk_config->port_config.tx_offloads |= RTE_ETH_TX_OFFLOAD_IPV4_CKSUM | RTE_ETH_TX_OFFLOAD_UDP_CKSUM;
+
+	return DOCA_SUCCESS;
+}
+
+/*
+ * Validate application mode fits the number of operating ports.
+ *
+ * @mode [in]: application mode.
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t validate_mode(enum ip_frag_mode mode)
+{
+	uint32_t num_ports = rte_eth_dev_count_avail();
+
+	switch (mode) {
+	case IP_FRAG_MODE_BIDIR:
+		if (num_ports != 2) {
+			DOCA_LOG_ERR("Bidir mode requires two ports.");
+			return DOCA_ERROR_NOT_SUPPORTED;
+		}
+		break;
+	case IP_FRAG_MODE_MULTIPORT:
+		if (num_ports != 4) {
+			DOCA_LOG_ERR("Multiport mode requires four ports.");
+			return DOCA_ERROR_NOT_SUPPORTED;
+		}
+		break;
+	default:
+		DOCA_LOG_ERR("Unsupported application mode: %u", mode);
+		return DOCA_ERROR_NOT_SUPPORTED;
+	};
+
+	return DOCA_SUCCESS;
+}
+
+/*
  * Application main function
  *
  * @argc [in]: command line arguments size
@@ -289,6 +373,7 @@ int main(int argc, char **argv)
 	struct ip_frag_config cfg = {
 		.mtu = RTE_ETHER_MAX_LEN,
 		.mbuf_chain = false,
+		.hw_cksum = true,
 		.frag_tbl_timeout = IP_FRAG_TBL_TIMEOUT_MS,
 		.frag_tbl_size = IP_FRAG_TBL_SIZE,
 	};
@@ -311,7 +396,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the application, pid %d", getpid());
 
-	result = doca_argp_init("doca_ip_frag", &cfg);
+	result = doca_argp_init(NULL, &cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto app_exit;
@@ -330,9 +415,21 @@ int main(int argc, char **argv)
 		goto argp_cleanup;
 	}
 
+	result = validate_mode(cfg.mode);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to validate mode");
+		goto dpdk_cleanup;
+	}
+
 	result = ip_frag_dpdk_config_num_ports(&dpdk_config);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to configure num ports");
+		goto dpdk_cleanup;
+	}
+
+	result = ip_frag_dpdk_config_tx_offloads(&cfg, &dpdk_config);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to configure tx offloads");
 		goto dpdk_cleanup;
 	}
 

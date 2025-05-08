@@ -270,7 +270,7 @@ static doca_error_t create_push_pipe(struct doca_flow_port *port,
 	actions.has_push = true;
 	actions.push.type = DOCA_FLOW_PUSH_ACTION_VLAN;
 	actions.push.vlan.eth_type = rte_cpu_to_be_16(DOCA_FLOW_ETHER_TYPE_VLAN);
-	actions.push.vlan.vlan_hdr.tci = rte_cpu_to_be_16(0x0123);
+	actions.push.vlan.vlan_hdr.tci = rte_cpu_to_be_16(0x1234);
 
 	result = create_basic_pipe(port, "PUSH_PIPE", &match, actions_arr, NULL, fwd, NULL, 1, 1, false, false, &pipe);
 	if (result != DOCA_SUCCESS) {

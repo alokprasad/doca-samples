@@ -1075,7 +1075,7 @@ int main(int argc, char **argv)
 	force_quit = false;
 
 	/* Init ARGP interface and start parsing cmdline/json arguments */
-	result = doca_argp_init("doca_ipsec_security_gw", &app_cfg);
+	result = doca_argp_init(NULL, &app_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return EXIT_FAILURE;
@@ -1158,6 +1158,13 @@ int main(int argc, char **argv)
 		}
 	}
 
+	result = ipsec_security_gw_init_status(&app_cfg, dpdk_config.port_config.nb_queues);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to init status entries");
+		exit_status = EXIT_FAILURE;
+		goto doca_flow_cleanup;
+	}
+
 	if (app_cfg.flow_mode == IPSEC_SECURITY_GW_SWITCH) {
 		result = create_rss_pipe(&app_cfg,
 					 ports[SECURED_IDX]->port,
@@ -1168,6 +1175,13 @@ int main(int argc, char **argv)
 			exit_status = EXIT_FAILURE;
 			goto doca_flow_cleanup;
 		}
+	}
+
+	result = ipsec_security_gw_bind(ports, &app_cfg);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to bind encrypt and decrypt rules");
+		exit_status = EXIT_FAILURE;
+		goto doca_flow_cleanup;
 	}
 
 	result = ipsec_security_gw_create_encrypt_egress(ports, &app_cfg);
@@ -1238,6 +1252,7 @@ doca_flow_cleanup:
 	security_gateway_free_resources(&app_cfg);
 	/* Flow cleanup */
 	doca_flow_cleanup(nb_ports, ports);
+	security_gateway_free_status_entries(&app_cfg);
 	doca_flow_tune_server_destroy();
 dpdk_cleanup:
 	/* DPDK cleanup */

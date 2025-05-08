@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the sample");
 
-	result = doca_argp_init("doca_flow_ct_tcp_ipv4_ipv6", &ct_cfg);
+	result = doca_argp_init(NULL, &ct_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

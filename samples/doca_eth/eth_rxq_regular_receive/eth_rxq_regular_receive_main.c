@@ -24,6 +24,7 @@
  */
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include <doca_argp.h>
@@ -38,10 +39,11 @@ DOCA_LOG_REGISTER(ETH_RXQ_REGULAR_RECEIVE::MAIN);
 /* Configuration struct */
 struct eth_rxq_cfg {
 	char ib_dev_name[DOCA_DEVINFO_IBDEV_NAME_SIZE]; /* DOCA IB device name */
+	bool timestamp_enable;				/* timestamp enable */
 };
 
 /* Sample's Logic */
-doca_error_t eth_rxq_regular_receive(const char *ib_dev_name);
+doca_error_t eth_rxq_regular_receive(const char *ib_dev_name, bool timestamp_enable);
 
 /*
  * ARGP Callback - Handle IB device name parameter
@@ -58,6 +60,23 @@ static doca_error_t device_address_callback(void *param, void *config)
 }
 
 /*
+ * ARGP Callback - timestamp enable parameter
+ *
+ * @param [in]: Input parameter
+ * @config [out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t timestamp_callback(void *param, void *config)
+{
+	(void)param;
+	struct eth_rxq_cfg *eth_rxq_cfg = (struct eth_rxq_cfg *)config;
+
+	eth_rxq_cfg->timestamp_enable = true;
+
+	return DOCA_SUCCESS;
+}
+
+/*
  * Register the command line parameters for the sample.
  *
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
@@ -66,6 +85,7 @@ static doca_error_t register_eth_rxq_params(void)
 {
 	doca_error_t result;
 	struct doca_argp_param *dev_ib_name_param;
+	struct doca_argp_param *enable_timestamp_param;
 
 	result = doca_argp_param_create(&dev_ib_name_param);
 	if (result != DOCA_SUCCESS) {
@@ -79,6 +99,23 @@ static doca_error_t register_eth_rxq_params(void)
 	doca_argp_param_set_callback(dev_ib_name_param, device_address_callback);
 	doca_argp_param_set_type(dev_ib_name_param, DOCA_ARGP_TYPE_STRING);
 	result = doca_argp_register_param(dev_ib_name_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	result = doca_argp_param_create(&enable_timestamp_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	doca_argp_param_set_short_name(enable_timestamp_param, "ts");
+	doca_argp_param_set_long_name(enable_timestamp_param, "timestamp");
+	doca_argp_param_set_description(enable_timestamp_param, "Enable timestamp retrieval - default: disabled");
+	doca_argp_param_set_callback(enable_timestamp_param, timestamp_callback);
+	doca_argp_param_set_type(enable_timestamp_param, DOCA_ARGP_TYPE_BOOLEAN);
+	result = doca_argp_register_param(enable_timestamp_param);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
 		return result;
@@ -115,8 +152,9 @@ int main(int argc, char **argv)
 		goto sample_exit;
 
 	strcpy(eth_rxq_cfg.ib_dev_name, "mlx5_0");
+	eth_rxq_cfg.timestamp_enable = false;
 
-	result = doca_argp_init("eth_rxq_regular_receive", &eth_rxq_cfg);
+	result = doca_argp_init(NULL, &eth_rxq_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;
@@ -134,7 +172,7 @@ int main(int argc, char **argv)
 		goto argp_cleanup;
 	}
 
-	result = eth_rxq_regular_receive(eth_rxq_cfg.ib_dev_name);
+	result = eth_rxq_regular_receive(eth_rxq_cfg.ib_dev_name, eth_rxq_cfg.timestamp_enable);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("eth_rxq_regular_receive() encountered an error: %s", doca_error_get_descr(result));
 		goto argp_cleanup;

@@ -667,8 +667,16 @@ static doca_error_t upf_accel_pdr_parse(struct json_object *pdr_arr, struct upf_
 			goto err_pdr;
 		}
 
-		if (upf_accel_pdr->qerids_num > UPF_ACCEL_MAX_NUM_METER_TABLES) {
-			DOCA_LOG_ERR("Max Supported Meters Tables Num is: %lu", UPF_ACCEL_MAX_NUM_METER_TABLES);
+		if (upf_accel_pdr->qerids_num > UPF_ACCEL_MAX_PDR_NUM_RATE_METERS) {
+			DOCA_LOG_ERR("Max Supported Rate Meters Num is: %lu", UPF_ACCEL_MAX_PDR_NUM_RATE_METERS);
+			err = DOCA_ERROR_INVALID_VALUE;
+			goto err_pdr;
+		}
+
+		if ((upf_accel_pdr->qerids_num == 0) || (upf_accel_pdr->urrids_num != 1)) {
+			DOCA_LOG_ERR("Each PDR must have at least one QER (has %u) and exactly one URR (has %u)",
+				     upf_accel_pdr->qerids_num,
+				     upf_accel_pdr->urrids_num);
 			err = DOCA_ERROR_INVALID_VALUE;
 			goto err_pdr;
 		}
@@ -967,8 +975,8 @@ static doca_error_t upf_accel_qer_parse(struct json_object *qer_arr, struct upf_
 		return DOCA_ERROR_NO_MEMORY;
 	}
 	qers->num_qers = num_qers;
-	if (num_qers > UPF_ACCEL_MAX_NUM_METER_TABLES) {
-		DOCA_LOG_ERR("Max Supported Meters Tables Num is: %lu", UPF_ACCEL_MAX_NUM_METER_TABLES);
+	if (num_qers > UPF_ACCEL_MAX_PDR_NUM_RATE_METERS) {
+		DOCA_LOG_ERR("Max Supported Meters Tables Num is: %lu", UPF_ACCEL_MAX_PDR_NUM_RATE_METERS);
 		err = DOCA_ERROR_INVALID_VALUE;
 		goto err_far;
 	}

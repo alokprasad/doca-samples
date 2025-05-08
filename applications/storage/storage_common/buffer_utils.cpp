@@ -25,7 +25,7 @@
 
 #include <storage_common/buffer_utils.hpp>
 
-namespace storage::common {
+namespace storage {
 
 std::string bytes_to_hex_str(char const *bytes, size_t byte_count)
 {
@@ -57,4 +57,4 @@ size_t aligned_size(size_t alignment, size_t size)
 	return alignment * ((size / alignment) + (remainder == 0 ? 0 : 1));
 }
 
-} /* namespace storage::common */
+} /* namespace storage */

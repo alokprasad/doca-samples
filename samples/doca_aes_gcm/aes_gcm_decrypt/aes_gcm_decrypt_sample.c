@@ -54,8 +54,7 @@ doca_error_t aes_gcm_decrypt(struct aes_gcm_cfg *cfg, char *file_data, size_t fi
 	struct program_core_objects *state = NULL;
 	struct doca_buf *src_doca_buf = NULL;
 	struct doca_buf *dst_doca_buf = NULL;
-	/* The sample will use 2 doca buffers */
-	uint32_t max_bufs = 2;
+	uint32_t max_bufs = cfg->num_dst_buf + cfg->num_src_buf;
 	char *dst_buffer = NULL;
 	uint8_t *resp_head = NULL;
 	size_t data_len = 0;
@@ -131,8 +130,13 @@ doca_error_t aes_gcm_decrypt(struct aes_gcm_cfg *cfg, char *file_data, size_t fi
 	}
 
 	/* Construct DOCA buffer for each address range */
-	result =
-		doca_buf_inventory_buf_get_by_addr(state->buf_inv, state->src_mmap, file_data, file_size, &src_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       state->src_mmap,
+				       file_data,
+				       file_size,
+				       cfg->num_src_buf,
+				       true,
+				       &src_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing source buffer: %s",
 			     doca_error_get_descr(result));
@@ -140,22 +144,17 @@ doca_error_t aes_gcm_decrypt(struct aes_gcm_cfg *cfg, char *file_data, size_t fi
 	}
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->buf_inv,
-						    state->dst_mmap,
-						    dst_buffer,
-						    max_decrypt_buf_size,
-						    &dst_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       state->dst_mmap,
+				       dst_buffer,
+				       max_decrypt_buf_size,
+				       cfg->num_dst_buf,
+				       false,
+				       &dst_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing destination buffer: %s",
 			     doca_error_get_descr(result));
 		goto destroy_src_buf;
-	}
-
-	/* Set data length in doca buffer */
-	result = doca_buf_set_data(src_doca_buf, file_data, file_size);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Unable to set DOCA buffer data: %s", doca_error_get_descr(result));
-		goto destroy_dst_buf;
 	}
 
 	/* Create DOCA AES-GCM key */

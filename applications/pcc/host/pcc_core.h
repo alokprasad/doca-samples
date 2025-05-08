@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (c) 2022-2023 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -140,6 +140,8 @@ struct pcc_config {
 	uint8_t gns_ignore_value;			 /* IFA2 GNS ignore value */
 	uint8_t gns_ignore_mask;			 /* IFA2 GNS ignore mask */
 	char coredump_file[MAX_ARG_SIZE];		 /* Coredump file pathname */
+	char dpa_resources_file[MAX_ARG_SIZE];		 /* DPA resources yaml file path */
+	char dpa_application_key[MAX_ARG_SIZE];		 /* DPA application file name */
 };
 
 struct pcc_resources {

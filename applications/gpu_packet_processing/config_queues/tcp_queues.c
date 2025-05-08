@@ -85,6 +85,8 @@ doca_error_t create_tcp_queues(struct rxq_tcp_queues *tcp_queues,
 							       MAX_PKT_SIZE,
 							       MAX_PKT_NUM,
 							       0,
+							       0,
+							       0,
 							       &cyclic_buffer_size);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to get eth_rxq cyclic buffer size: %s", doca_error_get_descr(result));

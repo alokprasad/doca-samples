@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2023-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -31,6 +31,7 @@
 #include <doca_argp.h>
 #include <doca_log.h>
 
+#include <pack.h>
 #include <utils.h>
 #include <flow_parser.h>
 
@@ -55,11 +56,11 @@ static doca_error_t parse_hex_to_bytes(const char *key_hex, size_t key_size, uin
 
 	/* Parse every digit (nibble and translate it to the matching numeric value) */
 	for (i = 0; i < key_size; i++) {
-		/* Must be lower-case alpha-numeric */
+		/* Must be alpha-numeric */
 		if ('0' <= key_hex[i] && key_hex[i] <= '9')
 			digit = key_hex[i] - '0';
 		else if ('a' <= tolower(key_hex[i]) && tolower(key_hex[i]) <= 'f')
-			digit = key_hex[i] - 'a' + 10;
+			digit = tolower(key_hex[i]) - 'a' + 10;
 		else {
 			DOCA_LOG_ERR("Wrong format for key (%s) - not alpha-numeric", key_hex);
 			return DOCA_ERROR_INVALID_VALUE;
@@ -147,6 +148,51 @@ static doca_error_t create_key_type(struct json_object *cur_rule, enum doca_flow
 		DOCA_LOG_ERR("Key type should be 128 / 256");
 		return DOCA_ERROR_INVALID_VALUE;
 	}
+	return DOCA_SUCCESS;
+}
+
+/*
+ * Parse IV from json object rule
+ *
+ * @cur_rule [in]: json object of the current rule to parse
+ * @iv [out]: the parsed iv value
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t create_iv(struct json_object *cur_rule, uint64_t *iv)
+{
+	struct json_object *json_iv;
+	doca_error_t result;
+	const char *iv_str;
+	int iv_len;
+	const int max_iv_size = 8 * 2;
+	uint8_t iv_bytes[8] = {0};
+	uint8_t *read_head = iv_bytes;
+
+	if (!json_object_object_get_ex(cur_rule, "iv", &json_iv)) {
+		DOCA_LOG_DBG("Missing IV, will use the default value");
+		*iv = unpack_uint64(&read_head);
+		return DOCA_SUCCESS;
+	}
+	if (json_object_get_type(json_iv) != json_type_string) {
+		DOCA_LOG_ERR("Expecting a string value for \"iv\"");
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	iv_str = json_object_get_string(json_iv);
+	iv_len = strnlen(iv_str, max_iv_size + 1);
+	if (iv_len == max_iv_size + 1) {
+		DOCA_LOG_ERR("IV string is too long - MAX=%d", max_iv_size);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+	if (iv_len % 2 != 0) {
+		DOCA_LOG_ERR("IV string should be in hexadecimal format, length must be even");
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+	result = parse_hex_to_bytes(iv_str, iv_len, iv_bytes);
+	if (result != DOCA_SUCCESS)
+		return result;
+
+	*iv = unpack_uint64(&read_head);
 	return DOCA_SUCCESS;
 }
 
@@ -545,6 +591,10 @@ static doca_error_t parse_json_decrypt_rules(struct json_object *json_rules, str
 		if (result != DOCA_SUCCESS)
 			return result;
 
+		result = create_iv(cur_rule, &app_cfg->app_rules.decrypt_rules[i].sa_attrs.iv);
+		if (result != DOCA_SUCCESS)
+			return result;
+
 		result = create_salt(cur_rule, &app_cfg->app_rules.decrypt_rules[i].sa_attrs.salt);
 		if (result != DOCA_SUCCESS)
 			return result;
@@ -626,6 +676,10 @@ static doca_error_t parse_json_encrypt_rules(struct json_object *json_rules, str
 		result = create_key(cur_rule,
 				    app_cfg->app_rules.encrypt_rules[i].sa_attrs.key_type,
 				    app_cfg->app_rules.encrypt_rules[i].sa_attrs.enc_key_data);
+		if (result != DOCA_SUCCESS)
+			return result;
+
+		result = create_iv(cur_rule, &app_cfg->app_rules.encrypt_rules[i].sa_attrs.iv);
 		if (result != DOCA_SUCCESS)
 			return result;
 
@@ -1253,6 +1307,12 @@ doca_error_t ipsec_security_gw_parse_config(struct ipsec_security_gw_config *app
 		if ((app_cfg->app_rules.nb_encrypt_rules > MAX_NB_RULES) ||
 		    (app_cfg->app_rules.nb_decrypt_rules > MAX_NB_RULES)) {
 			DOCA_LOG_ERR("Number of rules exceeds the maximum number of rules allowed");
+			result = DOCA_ERROR_INVALID_VALUE;
+			goto json_release;
+		}
+
+		if (app_cfg->app_rules.nb_encrypt_rules == 0 && app_cfg->app_rules.nb_decrypt_rules == 0) {
+			DOCA_LOG_ERR("No encrypt and decrypt rules were found");
 			result = DOCA_ERROR_INVALID_VALUE;
 			goto json_release;
 		}

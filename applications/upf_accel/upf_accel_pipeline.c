@@ -295,33 +295,33 @@ static doca_error_t upf_accel_pipe_to_sw_create(struct upf_accel_ctx *upf_accel_
 }
 
 /*
- * Create a flow pipe that filter TX packets according to a SW mark
+ * Create a TX root flow pipe.
  *
  * @upf_accel_ctx [in]: UPF Acceleration context
  * @pipe_cfg [in]: UPF Acceleration pipe configuration
  * @pipe [out]: pointer to store the created pipe at
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t upf_accel_pipe_tx_filter_create(struct upf_accel_ctx *upf_accel_ctx,
-						    struct upf_accel_pipe_cfg *pipe_cfg,
-						    struct doca_flow_pipe **pipe)
+static doca_error_t upf_accel_pipe_tx_root_create(struct upf_accel_ctx *upf_accel_ctx,
+						  struct upf_accel_pipe_cfg *pipe_cfg,
+						  struct doca_flow_pipe **pipe)
 {
-	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE,
-				    .next_pipe =
-					    upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_ROUTER_START]};
-	struct doca_flow_fwd fwd_miss = {.type = DOCA_FLOW_FWD_PIPE,
-					 .next_pipe =
-						 upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_COUNTER]};
-	struct doca_flow_match match_mask = {.meta.pkt_meta = rte_cpu_to_be_32(UPF_ACCEL_META_FROM_SW)};
-	char *pipe_name = "TX_FILTER_PIPE";
+	struct doca_flow_fwd fwd = {
+		.type = DOCA_FLOW_FWD_PIPE,
+		.next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_SHARED_METERS_START]};
+	struct doca_flow_fwd fwd_miss = {
+		.type = DOCA_FLOW_FWD_PIPE,
+		.next_pipe =
+			upf_accel_ctx->pipes[pipe_cfg->port_id][upf_accel_drop_idx_get(pipe_cfg, UPF_ACCEL_DROP_DBG)]};
 	struct doca_flow_match match = {0};
+	char *pipe_name = "TX_ROOT_PIPE";
 	doca_error_t result;
 
 	pipe_cfg->name = pipe_name;
 	pipe_cfg->is_root = true;
 	pipe_cfg->num_entries = 1;
 	pipe_cfg->match = &match;
-	pipe_cfg->match_mask = &match_mask;
+	pipe_cfg->match_mask = NULL;
 	pipe_cfg->mon = NULL;
 	pipe_cfg->fwd = &fwd;
 	pipe_cfg->fwd_miss = &fwd_miss;
@@ -329,17 +329,15 @@ static doca_error_t upf_accel_pipe_tx_filter_create(struct upf_accel_ctx *upf_ac
 
 	result = upf_accel_pipe_create(pipe_cfg, pipe);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to create tx filter pipe: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to create tx root pipe: %s", doca_error_get_descr(result));
 		return result;
 	}
-
-	match.meta.pkt_meta = rte_cpu_to_be_32(UPF_ACCEL_META_FROM_SW);
 
 	result = upf_accel_pipe_static_entry_add(upf_accel_ctx,
 						 pipe_cfg->port_id,
 						 0,
 						 *pipe,
-						 &match,
+						 NULL,
 						 NULL,
 						 NULL,
 						 NULL,
@@ -347,7 +345,7 @@ static doca_error_t upf_accel_pipe_tx_filter_create(struct upf_accel_ctx *upf_ac
 						 &upf_accel_ctx->static_entry_ctx[pipe_cfg->port_id],
 						 NULL);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to add tx filter pipe entry: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to add tx root pipe entry: %s", doca_error_get_descr(result));
 		return result;
 	}
 
@@ -600,8 +598,7 @@ static doca_error_t upf_accel_pipe_decap_create(struct upf_accel_ctx *upf_accel_
 		.next_pipe =
 			upf_accel_ctx->pipes[pipe_cfg->port_id][upf_accel_drop_idx_get(pipe_cfg, UPF_ACCEL_DROP_DBG)]};
 	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE,
-				    .next_pipe =
-					    upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_RX_ROUTER_START]};
+				    .next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_FAR]};
 	struct doca_flow_actions act_decap = {.decap_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED,
 					      .decap_cfg.eth.type = RTE_BE16(DOCA_FLOW_ETHER_TYPE_IPV4)};
 	struct doca_flow_actions *action_list[] = {&act_decap};
@@ -831,13 +828,11 @@ static doca_error_t upf_accel_pipe_color_match_create(struct upf_accel_ctx *upf_
  *
  * @upf_accel_ctx [in]: UPF Acceleration context
  * @pipe_cfg [in]: UPF Acceleration pipe configuration
- * @fwd_pipe [in]: the pipe to forward after hit
  * @pipe [out]: pointer to store the created pipe at
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_pipe_shared_meter_create(struct upf_accel_ctx *upf_accel_ctx,
 						       struct upf_accel_pipe_cfg *pipe_cfg,
-						       struct doca_flow_pipe *fwd_pipe,
 						       struct doca_flow_pipe **pipe)
 {
 	struct doca_flow_monitor mon = {.meter_type = DOCA_FLOW_RESOURCE_TYPE_SHARED,
@@ -847,7 +842,7 @@ static doca_error_t upf_accel_pipe_shared_meter_create(struct upf_accel_ctx *upf
 		.next_pipe =
 			upf_accel_ctx->pipes[pipe_cfg->port_id][upf_accel_drop_idx_get(pipe_cfg, UPF_ACCEL_DROP_DBG)]};
 	struct doca_flow_match match_mask = {.meta.pkt_meta = rte_cpu_to_be_32(UPF_ACCEL_MAX_NUM_PDR - 1)};
-	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE, .next_pipe = fwd_pipe};
+	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE};
 	char *pipe_name = "SHARED_METER_PIPE";
 	struct doca_flow_match match = {0};
 	doca_error_t result;
@@ -872,57 +867,15 @@ static doca_error_t upf_accel_pipe_shared_meter_create(struct upf_accel_ctx *upf
 }
 
 /*
- * Create a multi forwarding pipe for routing to the next Meter pipe according
- * to PDR id
- *
- * @upf_accel_ctx [in]: UPF Acceleration context
- * @pipe_cfg [in]: UPF Acceleration pipe configuration
- * @pipe [out]: pointer to store the created pipe at
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t upf_accel_pipe_router_create(struct upf_accel_ctx *upf_accel_ctx,
-						 struct upf_accel_pipe_cfg *pipe_cfg,
-						 struct doca_flow_pipe **pipe)
-{
-	struct doca_flow_fwd fwd_miss = {
-		.type = DOCA_FLOW_FWD_PIPE,
-		.next_pipe =
-			upf_accel_ctx->pipes[pipe_cfg->port_id][upf_accel_drop_idx_get(pipe_cfg, UPF_ACCEL_DROP_DBG)]};
-	struct doca_flow_match match_mask = {.meta.pkt_meta = rte_cpu_to_be_32(UPF_ACCEL_MAX_NUM_PDR - 1)};
-	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE};
-	struct doca_flow_match match = {.meta.pkt_meta = UINT32_MAX};
-	char *pipe_name = "ROUTER_PIPE";
-	doca_error_t result;
-
-	pipe_cfg->name = pipe_name;
-	pipe_cfg->is_root = false;
-	pipe_cfg->num_entries = UPF_ACCEL_MAX_NUM_PDR;
-	pipe_cfg->match = &match;
-	pipe_cfg->match_mask = &match_mask;
-	pipe_cfg->mon = NULL;
-	pipe_cfg->fwd = &fwd;
-	pipe_cfg->fwd_miss = &fwd_miss;
-	pipe_cfg->actions.num_actions = 0;
-
-	result = upf_accel_pipe_create(pipe_cfg, pipe);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to create router pipe: %s", doca_error_get_descr(result));
-		return result;
-	}
-
-	return result;
-}
-
-/*
  * Create a shared meter chain, example:
  *
- * [Router A] --hit_0--> [Meter A] --hit--> [Color A] --green--> [Router B] ...
- *   |     |                  |                 |                    .
- * hit_i  miss              miss               red                   .
- *   |     |                  |                 |                    .
- *   |     --> [Debug Drop] <--                 v
- *   v                                     [Rate Drop]
- * [Meter X]
+ * [Meter A] --(Hit) HasAnotherMeter--> [Color A] --Green--> [Meter B] --...
+ *           |                             |
+ *           |                             --Red--> [RateDrop]
+ *           |                             |
+ *           --(Hit) NoMoreMeters-->    [Color NoMoreMeters] --Green--> Out
+ *           |
+ *           --(Miss) [DebugDrop]
  *
  * @upf_accel_ctx [in]: UPF Acceleration context
  * @pipe_cfg [in]: UPF Acceleration pipe configuration
@@ -933,53 +886,51 @@ static doca_error_t upf_accel_pipe_meter_chain_create(struct upf_accel_ctx *upf_
 						      struct upf_accel_pipe_cfg *pipe_cfg,
 						      struct doca_flow_pipe *color_pipe_next_pipe)
 {
-	enum upf_accel_pipe_type pipe_color_match_idx, pipe_shared_meter_idx, pipe_router_idx;
-	struct doca_flow_pipe *meter_pipe_next_pipe;
 	doca_error_t result;
 	int i;
 
 	if (pipe_cfg->domain == DOCA_FLOW_PIPE_DOMAIN_DEFAULT) {
-		pipe_color_match_idx = UPF_ACCEL_PIPE_RX_COLOR_MATCH_START;
-		pipe_shared_meter_idx = UPF_ACCEL_PIPE_RX_SHARED_METERS_START;
-		pipe_router_idx = UPF_ACCEL_PIPE_RX_ROUTER_START;
-	} else {
-		pipe_color_match_idx = UPF_ACCEL_PIPE_TX_COLOR_MATCH_START;
-		pipe_shared_meter_idx = UPF_ACCEL_PIPE_TX_SHARED_METERS_START;
-		pipe_router_idx = UPF_ACCEL_PIPE_TX_ROUTER_START;
+		DOCA_LOG_ERR("Meter chain cannot be created in ingress");
+		return DOCA_ERROR_NOT_SUPPORTED;
+	}
+
+	/* Create single NoMoreMeters pipe, jump to it if no more meters after each meters pipe. */
+	result = upf_accel_pipe_color_match_create(
+		upf_accel_ctx,
+		pipe_cfg,
+		color_pipe_next_pipe,
+		&upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_COLOR_MATCH_NO_MORE_METERS]);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create color pipe NoMoreMeters: %s", doca_error_get_descr(result));
+		return result;
 	}
 
 	for (i = upf_accel_ctx->upf_accel_cfg->qers->num_qers - 1; i >= 0; --i) {
-		result = upf_accel_pipe_color_match_create(
-			upf_accel_ctx,
-			pipe_cfg,
-			color_pipe_next_pipe,
-			&upf_accel_ctx->pipes[pipe_cfg->port_id][pipe_color_match_idx + i]);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to create color pipe num %d: %s", i, doca_error_get_descr(result));
-			return result;
-		}
-
-		meter_pipe_next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][pipe_color_match_idx + i];
-
 		result = upf_accel_pipe_shared_meter_create(
 			upf_accel_ctx,
 			pipe_cfg,
-			meter_pipe_next_pipe,
-			&upf_accel_ctx->pipes[pipe_cfg->port_id][pipe_shared_meter_idx + i]);
+			&upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_SHARED_METERS_START + i]);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to create meter pipe num %d: %s", i, doca_error_get_descr(result));
 			return result;
 		}
 
-		result = upf_accel_pipe_router_create(upf_accel_ctx,
-						      pipe_cfg,
-						      &upf_accel_ctx->pipes[pipe_cfg->port_id][pipe_router_idx + i]);
+		/*
+		 * The following color match pipe is to continue to the next meters pipe, since
+		 * the last meters pipe always points to NoMoreMeters for color match, we skip it.
+		 */
+		if (i == (int)(upf_accel_ctx->upf_accel_cfg->qers->num_qers - 1))
+			continue;
+
+		result = upf_accel_pipe_color_match_create(
+			upf_accel_ctx,
+			pipe_cfg,
+			upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_SHARED_METERS_START + i + 1],
+			&upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_TX_COLOR_MATCH_START + i]);
 		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to create router pipe num %d: %s", i, doca_error_get_descr(result));
+			DOCA_LOG_ERR("Failed to create color pipe num %d: %s", i, doca_error_get_descr(result));
 			return result;
 		}
-
-		color_pipe_next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][pipe_router_idx + i];
 	}
 
 	return result;
@@ -1103,8 +1054,7 @@ static doca_error_t upf_accel_pipe_5t_create(struct upf_accel_ctx *upf_accel_ctx
 			  .l4_type_ext = DOCA_FLOW_L4_TYPE_EXT_UDP,
 			  .udp.l4_port = {.dst_port = UINT16_MAX, .src_port = UINT16_MAX}}};
 	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE,
-				    .next_pipe =
-					    upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_RX_ROUTER_START]};
+				    .next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_FAR]};
 	struct doca_flow_fwd fwd_miss = {.type = DOCA_FLOW_FWD_PIPE,
 					 .next_pipe = upf_accel_ctx->pipes[pipe_cfg->port_id][UPF_ACCEL_PIPE_DL_TO_SW]};
 	struct doca_flow_monitor mon = {.aging_sec = upf_accel_ctx->upf_accel_cfg->hw_aging_time_sec};
@@ -1385,14 +1335,6 @@ static doca_error_t upf_accel_pipeline_rx_create(struct upf_accel_ctx *upf_accel
 		return result;
 	}
 
-	result = upf_accel_pipe_meter_chain_create(upf_accel_ctx,
-						   &pipe_cfg,
-						   upf_accel_ctx->pipes[pipe_cfg.port_id][UPF_ACCEL_PIPE_FAR]);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to create rx meter_chain: %s", doca_error_get_descr(result));
-		return result;
-	}
-
 	result = upf_accel_pipe_decap_create(upf_accel_ctx,
 					     &pipe_cfg,
 					     &upf_accel_ctx->pipes[pipe_cfg.port_id][UPF_ACCEL_PIPE_DECAP]);
@@ -1524,11 +1466,11 @@ static doca_error_t upf_accel_pipeline_tx_create(struct upf_accel_ctx *upf_accel
 		return result;
 	}
 
-	result = upf_accel_pipe_tx_filter_create(upf_accel_ctx,
-						 &pipe_cfg,
-						 &upf_accel_ctx->pipes[pipe_cfg.port_id][UPF_ACCEL_PIPE_TX_ROOT]);
+	result = upf_accel_pipe_tx_root_create(upf_accel_ctx,
+					       &pipe_cfg,
+					       &upf_accel_ctx->pipes[pipe_cfg.port_id][UPF_ACCEL_PIPE_TX_ROOT]);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to create tx filter pipe: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to create tx root pipe: %s", doca_error_get_descr(result));
 		return result;
 	}
 

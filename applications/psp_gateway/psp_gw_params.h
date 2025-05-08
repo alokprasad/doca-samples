@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -28,14 +28,16 @@
 
 #include <string>
 #include <vector>
+
 #include <doca_error.h>
 
 #define MAX_FILE_NAME (255) /* Maximum file name length */
 
-struct psp_gw_app_config;
+struct psp_gw_app_config; /* Forward declaration */
 
 /**
  * @brief Parses command-line arguments to the application.
+ *
  * During processing of arguments, both DPDK and the application
  * may remove arguments from argv, and argc will reflect the
  * new size.
@@ -48,7 +50,7 @@ struct psp_gw_app_config;
 doca_error_t psp_gw_argp_exec(int &argc, char *argv[], psp_gw_app_config *app_config);
 
 /**
- * @brief Parses the configuration JSON file to the application.
+ * @brief Parses the configuration JSON file that was passed to the application.
  *
  * @app_config [in/out]: The configuration of the application
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise

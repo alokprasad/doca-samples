@@ -683,6 +683,28 @@ doca_error_t flow_switch_to_wire(int nb_queues, int nb_ports, struct flow_switch
 		return result;
 	}
 
+	mirror_cfg.nr_targets = 1;
+	mirror_cfg.target = &target;
+	target.fwd.type = DOCA_FLOW_FWD_PORT;
+	target.fwd.port_id = 1;
+	cfg.mirror_cfg = mirror_cfg;
+	/* Create the function and reset later to verify the mirror update supporting.  */
+	result = doca_flow_shared_resource_set_cfg(DOCA_FLOW_SHARED_RESOURCE_MIRROR, shared_mirror_ids, &cfg);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to cfg shared mirror");
+		stop_doca_flow_ports(nb_ports, ports);
+		doca_flow_destroy();
+		return result;
+	}
+	/* bind shared mirror to port */
+	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_MIRROR, &shared_mirror_ids, 1, ports[0]);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to bind shared mirror to port");
+		stop_doca_flow_ports(nb_ports, ports);
+		doca_flow_destroy();
+		return result;
+	}
+
 	/* Create egress pipe and entries */
 	result = create_switch_egress_pipe(doca_flow_port_switch_get(ports[0]), &pipe_egress);
 	if (result != DOCA_SUCCESS) {
@@ -722,18 +744,10 @@ doca_error_t flow_switch_to_wire(int nb_queues, int nb_ports, struct flow_switch
 	target.fwd.type = DOCA_FLOW_FWD_PIPE;
 	target.fwd.next_pipe = pipe_egress;
 	cfg.mirror_cfg = mirror_cfg;
-	/* config shared mirror with dest */
+	/* Update mirror configuration here */
 	result = doca_flow_shared_resource_set_cfg(DOCA_FLOW_SHARED_RESOURCE_MIRROR, shared_mirror_ids, &cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to cfg shared mirror");
-		stop_doca_flow_ports(nb_ports, ports);
-		doca_flow_destroy();
-		return result;
-	}
-	/* bind shared mirror to port */
-	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_MIRROR, &shared_mirror_ids, 1, ports[0]);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to bind shared mirror to port");
 		stop_doca_flow_ports(nb_ports, ports);
 		doca_flow_destroy();
 		return result;

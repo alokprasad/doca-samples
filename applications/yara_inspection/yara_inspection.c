@@ -84,7 +84,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 
 	/* Parse cmdline/json arguments */
-	result = doca_argp_init("doca_yara_inspection", &yara_conf);
+	result = doca_argp_init(NULL, &yara_conf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return EXIT_FAILURE;

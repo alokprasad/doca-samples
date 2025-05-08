@@ -23,13 +23,13 @@
  *
  */
 
-#include "ip_frag_packet_parser.h"
 #include "ip_frag_dp.h"
 #include <flow_common.h>
 
 #include <doca_log.h>
 #include <doca_flow.h>
 #include <dpdk_utils.h>
+#include <packet_parser.h>
 
 #include <rte_lcore.h>
 #include <rte_malloc.h>
@@ -86,25 +86,25 @@ static void ip_frag_pkt_err_drop(struct ip_frag_wt_data *wt_data, uint16_t rx_po
 /*
  * Parse the packet.
  *
- * @dir [out]: incoming packet direction
+ * @pkt_type [out]: incoming packet type
  * @pkt [in]: pointer to the pkt
  * @parse_ctx [out]: pointer to the parser context
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t ip_frag_pkt_parse(enum ip_frag_pkt_dir *dir,
+static doca_error_t ip_frag_pkt_parse(enum parser_pkt_type *pkt_type,
 				      struct rte_mbuf *pkt,
-				      struct ip_frag_tun_parser_ctx *parse_ctx)
+				      struct tun_parser_ctx *parse_ctx)
 {
 	uint8_t *data_beg = rte_pktmbuf_mtod(pkt, uint8_t *);
 	uint8_t *data_end = data_beg + rte_pktmbuf_data_len(pkt);
 
-	switch (*dir) {
-	case IP_FRAG_PKT_DIR_0:
-		return ip_frag_ran_parse(data_beg, data_end, parse_ctx);
-	case IP_FRAG_PKT_DIR_1:
-		return ip_frag_wan_parse(data_beg, data_end, &parse_ctx->inner);
-	case IP_FRAG_PKT_DIR_UNKNOWN:
-		return ip_frag_dir_parse(data_beg, data_end, parse_ctx, dir);
+	switch (*pkt_type) {
+	case PARSER_PKT_TYPE_TUNNELED:
+		return tunnel_parse(data_beg, data_end, parse_ctx);
+	case PARSER_PKT_TYPE_PLAIN:
+		return plain_parse(data_beg, data_end, &parse_ctx->inner);
+	case PARSER_PKT_TYPE_UNKNOWN:
+		return unknown_parse(data_beg, data_end, parse_ctx, pkt_type);
 	default:
 		assert(0);
 		return DOCA_ERROR_INVALID_VALUE;
@@ -138,23 +138,107 @@ static void ip_frag_ipv4_hdr_cksum(struct rte_ipv4_hdr *hdr)
 }
 
 /*
- * Fixup the packet headers after reassembly.
+ * Calculate and set any required network-layer checksums for the parsed headers
+ *
+ * @ctx [in]: pointer to the parser network-layer context
+ */
+static void ip_frag_network_cksum(struct network_parser_ctx *ctx)
+{
+	if (ctx->ip_version == DOCA_FLOW_PROTO_IPV4)
+		ip_frag_ipv4_hdr_cksum(ctx->ipv4_hdr);
+}
+
+/*
+ * Calculate and set any required network-layer checksums for the headers
  *
  * @wt_data [in]: worker thread data
- * @dir [in]: incoming packet direction
+ * @pkt [in]: packet
+ * @l2_len [in]: length of L2 header
+ * @l3_len [in]: length of L3 header
+ * @ipv4_hdr [in]: header to calculate the checksum for
+ */
+static void ip_frag_ipv4_cksum_handle(struct ip_frag_wt_data *wt_data,
+				      struct rte_mbuf *pkt,
+				      uint64_t l2_len,
+				      uint64_t l3_len,
+				      struct rte_ipv4_hdr *ipv4_hdr)
+{
+	if (wt_data->cfg->hw_cksum) {
+		pkt->l2_len = l2_len;
+		pkt->l3_len = l3_len;
+		pkt->ol_flags |= RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_IP_CKSUM;
+	} else {
+		ip_frag_ipv4_hdr_cksum(ipv4_hdr);
+	}
+}
+
+/*
+ * Calculate and set any required network-layer checksums for the parsed headers
+ *
+ * @wt_data [in]: worker thread data
+ * @pkt [in]: packet
+ * @link_ctx [in]: pointer to the parser link-layer context
+ * @network_ctx [in]: pointer to the parser network-layer context
+ */
+static void ip_frag_network_cksum_handle(struct ip_frag_wt_data *wt_data,
+					 struct rte_mbuf *pkt,
+					 struct link_parser_ctx *link_ctx,
+					 struct network_parser_ctx *network_ctx)
+{
+	if (network_ctx->ip_version != DOCA_FLOW_PROTO_IPV4)
+		return;
+	ip_frag_ipv4_cksum_handle(wt_data, pkt, link_ctx->len, network_ctx->len, network_ctx->ipv4_hdr);
+}
+
+/*
+ * Handle UDP checksum
+ *
+ * @wt_data [in]: worker thread data
+ * @pkt [in]: packet
+ * @link_ctx [in]: pointer to the parser link-layer context
+ * @network_ctx [in]: pointer to the parser network-layer context
+ * @transport_ctx [in]: pointer to the parser transport-layer context
+ */
+static void ip_frag_udp_cksum_handle(struct ip_frag_wt_data *wt_data,
+				     struct rte_mbuf *pkt,
+				     struct link_parser_ctx *link_ctx,
+				     struct network_parser_ctx *network_ctx,
+				     struct transport_parser_ctx *transport_ctx)
+{
+	if (network_ctx->ip_version == DOCA_FLOW_PROTO_IPV4) {
+		/* UDP checksum is optional according to the spec */
+		transport_ctx->udp_hdr->dgram_cksum = 0;
+	} else {
+		if (wt_data->cfg->hw_cksum) {
+			pkt->l2_len = link_ctx->len;
+			pkt->l3_len = network_ctx->len;
+			transport_ctx->udp_hdr->dgram_cksum = rte_ipv6_phdr_cksum(network_ctx->ipv6.hdr, pkt->ol_flags);
+			pkt->ol_flags |= RTE_MBUF_F_TX_IPV6 | RTE_MBUF_F_TX_UDP_CKSUM;
+		} else {
+			/* UDP checksum can be omitted for tunnel headers IETF RFC 6935 */
+			transport_ctx->udp_hdr->dgram_cksum = 0;
+		}
+	}
+}
+
+/*
+ * Fixup the packet headers after reassembly. This involves fixing any length fields that may have become outdated and
+ * recalculating the necessary checksums (potentially zeroing them out when allowed by the spec)
+ *
+ * @wt_data [in]: worker thread data
+ * @pkt_type [in]: incoming packet type
  * @pkt [in]: packet
  * @parse_ctx [in]: pointer to the parser context
  */
 static void ip_frag_pkt_fixup(struct ip_frag_wt_data *wt_data,
-			      enum ip_frag_pkt_dir dir,
+			      enum parser_pkt_type pkt_type,
 			      struct rte_mbuf *pkt,
-			      struct ip_frag_tun_parser_ctx *parse_ctx)
+			      struct tun_parser_ctx *parse_ctx)
 {
-	assert(dir == IP_FRAG_PKT_DIR_0 || dir == IP_FRAG_PKT_DIR_1);
+	assert(pkt_type == PARSER_PKT_TYPE_TUNNELED || pkt_type == PARSER_PKT_TYPE_PLAIN);
 
 	if (pkt->ol_flags & wt_data->cfg->mbuf_flag_inner_modified) {
-		ip_frag_ipv4_hdr_cksum(parse_ctx->inner.network_ctx.ipv4_hdr);
-		if (dir == IP_FRAG_PKT_DIR_0) {
+		if (pkt_type == PARSER_PKT_TYPE_TUNNELED) {
 			/* Payload has been modified, need to fix the encapsulation accordingly going from inner to
 			 * outer protocols since changing inner data may affect outer's checksums. Fix GTPU payload
 			 * length first (which includes optional fields)... */
@@ -163,19 +247,43 @@ static void ip_frag_pkt_fixup(struct ip_frag_wt_data *wt_data,
 						 (parse_ctx->link_ctx.len + parse_ctx->network_ctx.len +
 						  parse_ctx->transport_ctx.len + sizeof(*parse_ctx->gtp_ctx.gtp_hdr)));
 
-			/* ...then fix UDP total length, either recalculating or zeroing-out encapsulation UDP
-			 * checksum... */
+			/* ...then fix UDP total length... */
 			parse_ctx->transport_ctx.udp_hdr->dgram_len = rte_cpu_to_be_16(
 				rte_pktmbuf_pkt_len(pkt) - (parse_ctx->link_ctx.len + parse_ctx->network_ctx.len));
-			parse_ctx->transport_ctx.udp_hdr->dgram_cksum = 0;
 
-			/* ...and fix the IP total length which requires recalculating header checksum */
-			parse_ctx->network_ctx.ipv4_hdr->total_length =
-				rte_cpu_to_be_16(rte_pktmbuf_pkt_len(pkt) - parse_ctx->link_ctx.len);
-			ip_frag_ipv4_hdr_cksum(parse_ctx->network_ctx.ipv4_hdr);
+			if (parse_ctx->network_ctx.ip_version == DOCA_FLOW_PROTO_IPV4) {
+				/* ...and fix the IP total length which requires recalculating header checksum in case
+				 * of IPv4... */
+				parse_ctx->network_ctx.ipv4_hdr->total_length =
+					rte_cpu_to_be_16(rte_pktmbuf_pkt_len(pkt) - parse_ctx->link_ctx.len);
+				ip_frag_network_cksum_handle(wt_data,
+							     pkt,
+							     &parse_ctx->link_ctx,
+							     &parse_ctx->network_ctx);
+			} else {
+				/* ...or just IP payload length field in case of IPv6.. */
+				parse_ctx->network_ctx.ipv6.hdr->payload_len =
+					rte_cpu_to_be_16(rte_pktmbuf_pkt_len(pkt) - parse_ctx->link_ctx.len -
+							 sizeof(*parse_ctx->network_ctx.ipv6.hdr));
+			}
+
+			/*  ...either recalculate or zero-out encapsulation UDP checksum... */
+			ip_frag_udp_cksum_handle(wt_data,
+						 pkt,
+						 &parse_ctx->link_ctx,
+						 &parse_ctx->network_ctx,
+						 &parse_ctx->transport_ctx);
+
+			/* ...fix payload network-level header checksum, if necessary */
+			ip_frag_network_cksum(&parse_ctx->inner.network_ctx);
+		} else {
+			ip_frag_network_cksum_handle(wt_data,
+						     pkt,
+						     &parse_ctx->inner.link_ctx,
+						     &parse_ctx->inner.network_ctx);
 		}
 	} else if (pkt->ol_flags & wt_data->cfg->mbuf_flag_outer_modified) {
-		ip_frag_ipv4_hdr_cksum(parse_ctx->network_ctx.ipv4_hdr);
+		ip_frag_network_cksum_handle(wt_data, pkt, &parse_ctx->link_ctx, &parse_ctx->network_ctx);
 	}
 }
 
@@ -219,11 +327,82 @@ static doca_error_t ip_frag_pkt_flatten(struct rte_mbuf *pkt)
 }
 
 /*
+ * Push a packet with fragmented outer IP header to the frag table.
+ *
+ * @wt_data [in]: worker thread data
+ * @pkt [in]: packet
+ * @parse_ctx [in]: pointer to the parser context
+ * @rx_ts [in]: burst reception timestamp
+ * @return: fully reassembled packet or NULL pointer if more frags are expected
+ */
+static struct rte_mbuf *ip_frag_pkt_reassemble_push_outer(struct ip_frag_wt_data *wt_data,
+							  struct rte_mbuf *pkt,
+							  struct tun_parser_ctx *parse_ctx,
+							  uint64_t rx_ts)
+{
+	ip_frag_pkt_reassemble_prepare(pkt,
+				       parse_ctx->link_ctx.len,
+				       parse_ctx->network_ctx.len,
+				       wt_data->cfg->mbuf_flag_outer_modified);
+
+	return parse_ctx->network_ctx.ip_version == DOCA_FLOW_PROTO_IPV4 ?
+		       rte_ipv4_frag_reassemble_packet(wt_data->frag_tbl,
+						       &wt_data->death_row,
+						       pkt,
+						       rx_ts,
+						       parse_ctx->network_ctx.ipv4_hdr) :
+		       rte_ipv6_frag_reassemble_packet(wt_data->frag_tbl,
+						       &wt_data->death_row,
+						       pkt,
+						       rx_ts,
+						       parse_ctx->network_ctx.ipv6.hdr,
+						       parse_ctx->network_ctx.ipv6.frag_ext);
+}
+
+/*
+ * Push a packet with fragmented inner IP header to the frag table.
+ *
+ * @wt_data [in]: worker thread data
+ * @pkt_type [in]: incoming packet type
+ * @pkt [in]: packet
+ * @parse_ctx [in]: pointer to the parser context
+ * @rx_ts [in]: burst reception timestamp
+ * @return: fully reassembled packet or NULL pointer if more frags are expected
+ */
+static struct rte_mbuf *ip_frag_pkt_reassemble_push_inner(struct ip_frag_wt_data *wt_data,
+							  enum parser_pkt_type pkt_type,
+							  struct rte_mbuf *pkt,
+							  struct tun_parser_ctx *parse_ctx,
+							  uint64_t rx_ts)
+{
+	ip_frag_pkt_reassemble_prepare(pkt,
+				       pkt_type == PARSER_PKT_TYPE_PLAIN    ? parse_ctx->inner.link_ctx.len :
+									      /* For tunneled packets we treat the
+										 whole encapsulation as  L2 for the
+										 purpose of reassembly library. */
+									      parse_ctx->len - parse_ctx->inner.len,
+				       parse_ctx->inner.network_ctx.len,
+				       wt_data->cfg->mbuf_flag_inner_modified);
+
+	return parse_ctx->inner.network_ctx.ip_version == DOCA_FLOW_PROTO_IPV4 ?
+		       rte_ipv4_frag_reassemble_packet(wt_data->frag_tbl,
+						       &wt_data->death_row,
+						       pkt,
+						       rx_ts,
+						       parse_ctx->inner.network_ctx.ipv4_hdr) :
+		       rte_ipv6_frag_reassemble_packet(wt_data->frag_tbl,
+						       &wt_data->death_row,
+						       pkt,
+						       rx_ts,
+						       parse_ctx->inner.network_ctx.ipv6.hdr,
+						       parse_ctx->inner.network_ctx.ipv6.frag_ext);
+}
+/*
  * Set necessary mbuf fields and push the packet to the frag table.
  *
  * @wt_data [in]: worker thread data
  * @rx_port_id [in]: receive port id
- * @dir [in]: incoming packet direction
+ * @pkt_type [in]: incoming packet type
  * @pkt [in]: packet
  * @parse_ctx [in]: pointer to the parser context
  * @rx_ts [in]: burst reception timestamp
@@ -232,39 +411,24 @@ static doca_error_t ip_frag_pkt_flatten(struct rte_mbuf *pkt)
  */
 static doca_error_t ip_frag_pkt_reassemble_push(struct ip_frag_wt_data *wt_data,
 						uint16_t rx_port_id,
-						enum ip_frag_pkt_dir dir,
+						enum parser_pkt_type pkt_type,
 						struct rte_mbuf *pkt,
-						struct ip_frag_tun_parser_ctx *parse_ctx,
+						struct tun_parser_ctx *parse_ctx,
 						uint64_t rx_ts,
 						struct rte_mbuf **whole_pkt)
 {
-	struct rte_ipv4_hdr *ipv4_hdr;
 	struct rte_mbuf *res;
 	doca_error_t ret;
 
-	assert(dir == IP_FRAG_PKT_DIR_0 || dir == IP_FRAG_PKT_DIR_1);
+	assert(pkt_type == PARSER_PKT_TYPE_TUNNELED || pkt_type == PARSER_PKT_TYPE_PLAIN);
 
-	if (parse_ctx->network_ctx.frag) {
-		ip_frag_pkt_reassemble_prepare(pkt,
-					       parse_ctx->link_ctx.len,
-					       parse_ctx->network_ctx.len,
-					       wt_data->cfg->mbuf_flag_outer_modified);
-		ipv4_hdr = parse_ctx->network_ctx.ipv4_hdr;
-	} else if (parse_ctx->inner.network_ctx.frag) {
-		ip_frag_pkt_reassemble_prepare(pkt,
-					       dir == IP_FRAG_PKT_DIR_1	   ? parse_ctx->inner.link_ctx.len :
-									     /* For tunneled packets we treat the
-										whole encapsulation as  L2 for the
-										purpose of reassembly library. */
-									     parse_ctx->len - parse_ctx->inner.len,
-					       parse_ctx->inner.network_ctx.len,
-					       wt_data->cfg->mbuf_flag_inner_modified);
-		ipv4_hdr = parse_ctx->inner.network_ctx.ipv4_hdr;
-	} else {
+	if (parse_ctx->network_ctx.frag)
+		res = ip_frag_pkt_reassemble_push_outer(wt_data, pkt, parse_ctx, rx_ts);
+	else if (parse_ctx->inner.network_ctx.frag)
+		res = ip_frag_pkt_reassemble_push_inner(wt_data, pkt_type, pkt, parse_ctx, rx_ts);
+	else
 		return DOCA_ERROR_INVALID_VALUE;
-	}
 
-	res = rte_ipv4_frag_reassemble_packet(wt_data->frag_tbl, &wt_data->death_row, pkt, rx_ts, ipv4_hdr);
 	if (!res)
 		return DOCA_ERROR_AGAIN;
 
@@ -286,40 +450,46 @@ static doca_error_t ip_frag_pkt_reassemble_push(struct ip_frag_wt_data *wt_data,
  * @wt_data [in]: worker thread data
  * @rx_port_id [in]: receive port id
  * @tx_port_id [in]: outgoing packet port id
- * @dir [in]: incoming packet direction
+ * @pkt_type [in]: incoming packet type
  * @pkt [in]: packet
  * @rx_ts [in]: burst reception timestamp
  */
 static void ip_frag_pkt_reassemble(struct ip_frag_wt_data *wt_data,
 				   uint16_t rx_port_id,
 				   uint16_t tx_port_id,
-				   enum ip_frag_pkt_dir dir,
+				   enum parser_pkt_type pkt_type,
 				   struct rte_mbuf *pkt,
 				   uint64_t rx_ts)
 {
-	struct ip_frag_tun_parser_ctx parse_ctx;
-	enum ip_frag_pkt_dir dir_curr;
+	struct tun_parser_ctx parse_ctx;
+	enum parser_pkt_type inferred_pkt_type;
 	doca_error_t ret;
 	bool reparse;
 
 	do {
 		reparse = false;
-		/* For fragmented packet parser can't correctly deduce rx direction on the first pass so reset it on
+		/* For fragmented packet parser can't correctly deduce rx type on the first pass so reset it on
 		 * each reparse iteration. */
-		dir_curr = dir;
+		inferred_pkt_type = pkt_type;
 		memset(&parse_ctx, 0, sizeof(parse_ctx));
 
-		ret = ip_frag_pkt_parse(&dir_curr, pkt, &parse_ctx);
+		ret = ip_frag_pkt_parse(&inferred_pkt_type, pkt, &parse_ctx);
 		switch (ret) {
 		case DOCA_SUCCESS:
 			wt_data->sw_counters[rx_port_id].whole++;
-			ip_frag_pkt_fixup(wt_data, dir_curr, pkt, &parse_ctx);
+			ip_frag_pkt_fixup(wt_data, inferred_pkt_type, pkt, &parse_ctx);
 			rte_eth_tx_buffer(tx_port_id, wt_data->queue_id, wt_data->tx_buffer, pkt);
 			break;
 
 		case DOCA_ERROR_AGAIN:
 			wt_data->sw_counters[rx_port_id].frags_rx++;
-			ret = ip_frag_pkt_reassemble_push(wt_data, rx_port_id, dir_curr, pkt, &parse_ctx, rx_ts, &pkt);
+			ret = ip_frag_pkt_reassemble_push(wt_data,
+							  rx_port_id,
+							  inferred_pkt_type,
+							  pkt,
+							  &parse_ctx,
+							  rx_ts,
+							  &pkt);
 			if (ret == DOCA_SUCCESS) {
 				reparse = true;
 			} else if (ret != DOCA_ERROR_AGAIN) {
@@ -342,7 +512,7 @@ static void ip_frag_pkt_reassemble(struct ip_frag_wt_data *wt_data,
  * @wt_data [in]: worker thread data
  * @rx_port_id [in]: receive port id
  * @tx_port_id [in]: send port id
- * @dir [in]: incoming packet direction
+ * @pkt_type [in]: incoming packet type
  * @pkts [in]: packet burst
  * @pkts_cnt [in]: number of packets in the burst
  * @rx_ts [in]: burst reception timestamp
@@ -350,7 +520,7 @@ static void ip_frag_pkt_reassemble(struct ip_frag_wt_data *wt_data,
 static void ip_frag_pkts_reassemble(struct ip_frag_wt_data *wt_data,
 				    uint16_t rx_port_id,
 				    uint16_t tx_port_id,
-				    enum ip_frag_pkt_dir dir,
+				    enum parser_pkt_type pkt_type,
 				    struct rte_mbuf *pkts[],
 				    int pkts_cnt,
 				    uint64_t rx_ts)
@@ -362,11 +532,11 @@ static void ip_frag_pkts_reassemble(struct ip_frag_wt_data *wt_data,
 
 	for (i = 0; i < (pkts_cnt - IP_FRAG_BURST_PREFETCH); i++) {
 		rte_prefetch0(rte_pktmbuf_mtod(pkts[i + IP_FRAG_BURST_PREFETCH], void *));
-		ip_frag_pkt_reassemble(wt_data, rx_port_id, tx_port_id, dir, pkts[i], rx_ts);
+		ip_frag_pkt_reassemble(wt_data, rx_port_id, tx_port_id, pkt_type, pkts[i], rx_ts);
 	}
 
 	for (; i < pkts_cnt; i++)
-		ip_frag_pkt_reassemble(wt_data, rx_port_id, tx_port_id, dir, pkts[i], rx_ts);
+		ip_frag_pkt_reassemble(wt_data, rx_port_id, tx_port_id, pkt_type, pkts[i], rx_ts);
 }
 
 /*
@@ -375,24 +545,47 @@ static void ip_frag_pkts_reassemble(struct ip_frag_wt_data *wt_data,
  * @wt_data [in]: worker thread data
  * @rx_port_id [in]: receive port id
  * @tx_port_id [in]: send port id
- * @dir [in]: incoming packet direction
+ * @pkt_type [in]: incoming packet type
  */
 static void ip_frag_wt_reassemble(struct ip_frag_wt_data *wt_data,
 				  uint16_t rx_port_id,
 				  uint16_t tx_port_id,
-				  enum ip_frag_pkt_dir dir)
+				  enum parser_pkt_type pkt_type)
 {
 	struct rte_mbuf *pkts[IP_FRAG_MAX_PKT_BURST];
 	uint16_t pkts_cnt;
 
 	pkts_cnt = rte_eth_rx_burst(rx_port_id, wt_data->queue_id, pkts, IP_FRAG_MAX_PKT_BURST);
 	if (likely(pkts_cnt)) {
-		ip_frag_pkts_reassemble(wt_data, rx_port_id, tx_port_id, dir, pkts, pkts_cnt, rte_rdtsc());
+		ip_frag_pkts_reassemble(wt_data, rx_port_id, tx_port_id, pkt_type, pkts, pkts_cnt, rte_rdtsc());
 		rte_eth_tx_buffer_flush(tx_port_id, wt_data->queue_id, wt_data->tx_buffer);
 	} else {
 		rte_ip_frag_table_del_expired_entries(wt_data->frag_tbl, &wt_data->death_row, rte_rdtsc());
 	}
 	rte_ip_frag_free_death_row(&wt_data->death_row, IP_FRAG_BURST_PREFETCH);
+}
+
+static int32_t ip_frag_mbuf_fragment(struct ip_frag_wt_data *wt_data,
+				     struct conn_parser_ctx *parse_ctx,
+				     struct rte_mbuf *pkt_in,
+				     struct rte_mbuf **pkts_out,
+				     uint16_t pkts_out_max,
+				     uint16_t mtu,
+				     struct rte_mempool *direct_pool,
+				     struct rte_mempool *indirect_pool)
+{
+	if (parse_ctx->network_ctx.ip_version == DOCA_FLOW_PROTO_IPV4)
+		return wt_data->cfg->mbuf_chain ?
+			       rte_ipv4_fragment_packet(pkt_in, pkts_out, pkts_out_max, mtu, direct_pool, indirect_pool) :
+			       rte_ipv4_fragment_copy_nonseg_packet(pkt_in, pkts_out, pkts_out_max, mtu, direct_pool);
+	else
+		return wt_data->cfg->mbuf_chain ? rte_ipv6_fragment_packet(pkt_in,
+									   pkts_out,
+									   pkts_out_max,
+									   mtu,
+									   direct_pool,
+									   indirect_pool) :
+						  -EOPNOTSUPP;
 }
 
 /*
@@ -410,7 +603,7 @@ static void ip_frag_pkt_fragment(struct ip_frag_wt_data *wt_data,
 {
 	struct rte_eth_dev_tx_buffer *tx_buffer = wt_data->tx_buffer;
 	uint8_t eth_hdr_copy[RTE_PKTMBUF_HEADROOM];
-	struct ip_frag_conn_parser_ctx parse_ctx;
+	struct conn_parser_ctx parse_ctx;
 	size_t eth_hdr_len;
 	void *eth_hdr_new;
 	doca_error_t ret;
@@ -419,10 +612,10 @@ static void ip_frag_pkt_fragment(struct ip_frag_wt_data *wt_data,
 
 	memset(&parse_ctx, 0, sizeof(parse_ctx));
 	/* We only fragment the outer header and don't care about parsing encapsulation, so always treat the packet as
-	 * coming from the WAN port. */
-	ret = ip_frag_wan_parse(rte_pktmbuf_mtod(pkt, uint8_t *),
-				rte_pktmbuf_mtod(pkt, uint8_t *) + rte_pktmbuf_data_len(pkt),
-				&parse_ctx);
+	 * non-encapsulated. */
+	ret = plain_parse(rte_pktmbuf_mtod(pkt, uint8_t *),
+			  rte_pktmbuf_mtod(pkt, uint8_t *) + rte_pktmbuf_data_len(pkt),
+			  &parse_ctx);
 	if (ret != DOCA_SUCCESS) {
 		ip_frag_pkt_err_drop(wt_data, rx_port_id, pkt);
 		DOCA_LOG_DBG("Failed to parse packet status %u", ret);
@@ -445,17 +638,14 @@ static void ip_frag_pkt_fragment(struct ip_frag_wt_data *wt_data,
 	memcpy(eth_hdr_copy, parse_ctx.link_ctx.eth, eth_hdr_len);
 	rte_pktmbuf_adj(pkt, eth_hdr_len);
 
-	num_frags = wt_data->cfg->mbuf_chain ? rte_ipv4_fragment_packet(pkt,
-									&tx_buffer->pkts[tx_buffer->length],
-									tx_buffer->size - tx_buffer->length,
-									wt_data->cfg->mtu - eth_hdr_len,
-									pkt->pool,
-									wt_data->indirect_pool) :
-					       rte_ipv4_fragment_copy_nonseg_packet(pkt,
-										    &tx_buffer->pkts[tx_buffer->length],
-										    tx_buffer->size - tx_buffer->length,
-										    wt_data->cfg->mtu - eth_hdr_len,
-										    pkt->pool);
+	num_frags = ip_frag_mbuf_fragment(wt_data,
+					  &parse_ctx,
+					  pkt,
+					  &tx_buffer->pkts[tx_buffer->length],
+					  tx_buffer->size - tx_buffer->length,
+					  wt_data->cfg->mtu - eth_hdr_len,
+					  pkt->pool,
+					  wt_data->indirect_pool);
 	if (num_frags < 0) {
 		ip_frag_pkt_err_drop(wt_data, rx_port_id, pkt);
 		DOCA_LOG_ERR("RTE fragmentation failed with code: %d", -num_frags);
@@ -465,7 +655,12 @@ static void ip_frag_pkt_fragment(struct ip_frag_wt_data *wt_data,
 
 	for (i = tx_buffer->length; i < tx_buffer->length + num_frags; i++) {
 		pkt = tx_buffer->pkts[i];
-		ip_frag_ipv4_hdr_cksum(rte_pktmbuf_mtod(pkt, struct rte_ipv4_hdr *));
+		if (parse_ctx.network_ctx.ip_version == DOCA_FLOW_PROTO_IPV4)
+			ip_frag_ipv4_cksum_handle(wt_data,
+						  pkt,
+						  eth_hdr_len,
+						  rte_ipv4_hdr_len(rte_pktmbuf_mtod(pkt, struct rte_ipv4_hdr *)),
+						  rte_pktmbuf_mtod(pkt, struct rte_ipv4_hdr *));
 
 		eth_hdr_new = rte_pktmbuf_prepend(pkt, eth_hdr_len);
 		assert(eth_hdr_new);
@@ -546,18 +741,18 @@ static int ip_frag_wt_thread_main(void *param)
 			ip_frag_wt_reassemble(wt_data,
 					      IP_FRAG_PORT_REASSEMBLE_0,
 					      IP_FRAG_PORT_FRAGMENT_0,
-					      IP_FRAG_PKT_DIR_UNKNOWN);
+					      PARSER_PKT_TYPE_UNKNOWN);
 			ip_frag_wt_fragment(wt_data, IP_FRAG_PORT_FRAGMENT_0, IP_FRAG_PORT_REASSEMBLE_0);
 			break;
 		case IP_FRAG_MODE_MULTIPORT:
 			ip_frag_wt_reassemble(wt_data,
 					      IP_FRAG_PORT_REASSEMBLE_0,
 					      IP_FRAG_PORT_REASSEMBLE_1,
-					      IP_FRAG_PKT_DIR_0);
+					      PARSER_PKT_TYPE_TUNNELED);
 			ip_frag_wt_reassemble(wt_data,
 					      IP_FRAG_PORT_FRAGMENT_0,
 					      IP_FRAG_PORT_FRAGMENT_1,
-					      IP_FRAG_PKT_DIR_1);
+					      PARSER_PKT_TYPE_PLAIN);
 			ip_frag_wt_fragment(wt_data, IP_FRAG_PORT_REASSEMBLE_1, IP_FRAG_PORT_REASSEMBLE_0);
 			ip_frag_wt_fragment(wt_data, IP_FRAG_PORT_FRAGMENT_1, IP_FRAG_PORT_FRAGMENT_0);
 			break;
@@ -675,15 +870,11 @@ static doca_error_t ip_frag_wt_data_init(const struct ip_frag_config *cfg,
 					 struct rte_mempool *indirect_pools[],
 					 struct ip_frag_wt_data **wt_data_arr_out)
 {
-	uint16_t num_cores = rte_lcore_count() - 1;
 	struct ip_frag_wt_data *wt_data_arr;
 	struct ip_frag_wt_data *wt_data;
 	uint16_t queue_id = 0;
 	doca_error_t ret;
 	unsigned lcore;
-
-	assert(num_cores > 0);
-	UNUSED(num_cores);
 
 	wt_data_arr = rte_calloc("Worker data", RTE_MAX_LCORE, sizeof(*wt_data_arr), _Alignof(typeof(*wt_data_arr)));
 	if (!wt_data_arr) {
@@ -928,6 +1119,88 @@ destroy_pipe_cfg:
 }
 
 /*
+ * Create RSS flow pipe
+ *
+ * @ctx [in]: Ip_frag context
+ * @port_id [in]: port to create pipe at
+ * @pipe_name [in]: name of the created pipe
+ * @is_root [in]: flag indicating root pipe
+ * @flags [in]: pipe RSS flags
+ * @pipe_miss [in]: forward miss pipe
+ * @pipe_out [out]: pointer to store the created pipe at
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t ip_frag_rss_pipe_create(struct ip_frag_ctx *ctx,
+					    uint16_t port_id,
+					    char *pipe_name,
+					    bool is_root,
+					    uint32_t flags,
+					    struct doca_flow_pipe *pipe_miss,
+					    struct doca_flow_pipe **pipe_out)
+{
+	uint16_t rss_queues[RTE_MAX_LCORE];
+	struct doca_flow_match match_pipe = {
+		.parser_meta.outer_l3_type = (flags & DOCA_FLOW_RSS_IPV4) ? DOCA_FLOW_L3_META_IPV4 :
+									    DOCA_FLOW_L3_META_IPV6,
+	};
+	const int num_of_entries = 1;
+	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_RSS,
+				    .rss_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED,
+				    .rss.queues_array = rss_queues,
+				    .rss.nr_queues = ctx->num_queues,
+				    .rss.outer_flags = flags};
+	struct doca_flow_fwd fwd_miss = {0};
+	struct ip_frag_pipe_cfg pipe_cfg = {.port_id = port_id,
+					    .port = ctx->ports[port_id],
+					    .domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT,
+					    .name = pipe_name,
+					    .is_root = is_root,
+					    .num_entries = num_of_entries,
+					    .match = &match_pipe,
+					    .match_mask = &match_pipe,
+					    .fwd = &fwd};
+	struct entries_status status = {0};
+	struct doca_flow_pipe *pipe;
+	doca_error_t ret;
+	int i;
+
+	for (i = 0; i < ctx->num_queues; ++i)
+		rss_queues[i] = i;
+
+	if (pipe_miss) {
+		fwd_miss.type = DOCA_FLOW_FWD_PIPE;
+		fwd_miss.next_pipe = pipe_miss;
+		pipe_cfg.fwd_miss = &fwd_miss;
+	}
+
+	ret = ip_frag_pipe_create(&pipe_cfg, &pipe);
+	if (ret != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create rss pipe: %s", doca_error_get_descr(ret));
+		return ret;
+	}
+
+	ret = doca_flow_pipe_add_entry(0, pipe, NULL, NULL, NULL, NULL, 0, &status, NULL);
+	if (ret != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to add rss entry: %s", doca_error_get_descr(ret));
+		return ret;
+	}
+
+	ret = doca_flow_entries_process(pipe_cfg.port, 0, DEFAULT_TIMEOUT_US, pipe_cfg.num_entries);
+	if (ret != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to process entries on port %u: %s", port_id, doca_error_get_descr(ret));
+		return ret;
+	}
+
+	if (status.nb_processed != num_of_entries || status.failure) {
+		DOCA_LOG_ERR("Failed to process port %u entries", port_id);
+		return DOCA_ERROR_BAD_STATE;
+	}
+
+	*pipe_out = pipe;
+	return DOCA_SUCCESS;
+}
+
+/*
  * Create RSS pipe for each port
  *
  * @ctx [in] Ip_Frag context
@@ -935,57 +1208,32 @@ destroy_pipe_cfg:
  */
 static doca_error_t ip_frag_rss_pipes_create(struct ip_frag_ctx *ctx)
 {
-	uint16_t rss_queues[RTE_MAX_LCORE];
-	struct doca_flow_match match = {0};
-	char *pipe_name = "RSS_PIPE";
-	const int num_of_entries = 1;
-	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_RSS,
-				    .rss.queues_array = rss_queues,
-				    .rss.nr_queues = ctx->num_queues,
-				    .rss.outer_flags = DOCA_FLOW_RSS_IPV4,
-				    .rss.rss_hash_func = DOCA_FLOW_RSS_HASH_FUNCTION_SYMMETRIC_TOEPLITZ};
-	struct ip_frag_pipe_cfg pipe_cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT,
-					    .name = pipe_name,
-					    .is_root = true,
-					    .num_entries = num_of_entries,
-					    .match = &match,
-					    .match_mask = NULL,
-					    .fwd = &fwd,
-					    .fwd_miss = NULL};
-	struct entries_status status;
 	doca_error_t ret;
 	int port_id;
-	int i;
-
-	for (i = 0; i < ctx->num_queues; ++i)
-		rss_queues[i] = i;
 
 	for (port_id = 0; port_id < ctx->num_ports; port_id++) {
-		pipe_cfg.port_id = port_id;
-		pipe_cfg.port = ctx->ports[port_id];
-		memset(&status, 0, sizeof(status));
-
-		ret = ip_frag_pipe_create(&pipe_cfg, &ctx->pipes[port_id]);
+		ret = ip_frag_rss_pipe_create(ctx,
+					      port_id,
+					      "RSS_IPV4_PIPE",
+					      false,
+					      DOCA_FLOW_RSS_IPV4,
+					      NULL,
+					      &ctx->pipes[port_id][IP_FRAG_RSS_PIPE_IPV4]);
 		if (ret != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to create rss pipe: %s", doca_error_get_descr(ret));
+			DOCA_LOG_ERR("Failed to create RSS IPv4 pipe: %s", doca_error_get_descr(ret));
 			return ret;
 		}
 
-		ret = doca_flow_pipe_add_entry(0, ctx->pipes[port_id], NULL, NULL, NULL, NULL, 0, &status, NULL);
+		ret = ip_frag_rss_pipe_create(ctx,
+					      port_id,
+					      "RSS_IPV6_PIPE",
+					      true,
+					      DOCA_FLOW_RSS_IPV6,
+					      ctx->pipes[port_id][IP_FRAG_RSS_PIPE_IPV4],
+					      &ctx->pipes[port_id][IP_FRAG_RSS_PIPE_IPV6]);
 		if (ret != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to add rss entry: %s", doca_error_get_descr(ret));
+			DOCA_LOG_ERR("Failed to create RSS IPv6 pipe: %s", doca_error_get_descr(ret));
 			return ret;
-		}
-
-		ret = doca_flow_entries_process(ctx->ports[port_id], 0, DEFAULT_TIMEOUT_US, num_of_entries);
-		if (ret != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to process entries on port %u: %s", port_id, doca_error_get_descr(ret));
-			return ret;
-		}
-
-		if (status.nb_processed != num_of_entries || status.failure) {
-			DOCA_LOG_ERR("Failed to process port %u entries", port_id);
-			return DOCA_ERROR_BAD_STATE;
 		}
 	}
 

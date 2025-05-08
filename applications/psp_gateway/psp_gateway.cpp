@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -24,14 +24,20 @@
  */
 
 // system headers
-#include <signal.h>
 #include <fcntl.h>
 #include <memory>
+#include <signal.h>
 
-// dpdk
+// DPDK
 #include <rte_ethdev.h>
 
-// doca
+// gRPC
+#include <google/protobuf/util/json_util.h>
+#include <grpc/support/log.h>
+#include <grpcpp/grpcpp.h>
+#include <grpcpp/server_builder.h>
+
+// DOCA
 #include <dpdk_utils.h>
 #include <doca_argp.h>
 #include <doca_dev.h>
@@ -39,12 +45,6 @@
 #include <doca_log.h>
 #include <doca_dpdk.h>
 #include <samples/common.h>
-
-// grpc
-#include <google/protobuf/util/json_util.h>
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
-#include <grpcpp/server_builder.h>
 
 // application
 #include <psp_gw_config.h>
@@ -93,13 +93,14 @@ int main(int argc, char **argv)
 	app_config.dpdk_config.reserve_main_thread = true;
 	app_config.pf_repr_indices = "[0]";
 	app_config.core_mask = "0x3";
-	app_config.max_tunnels = 128;
+	app_config.max_tunnels = 256;
 	app_config.net_config.vc_enabled = false;
 	app_config.net_config.crypt_offset = UINT32_MAX;
 	app_config.net_config.default_psp_proto_ver = UINT32_MAX;
 	app_config.log2_sample_rate = 0;
 	app_config.ingress_sample_meta_indicator = 0x65656565; // arbitrary pkt_meta flag value
 	app_config.egress_sample_meta_indicator = 0x43434343;
+	app_config.return_to_vf_indicator = 0x78787878;
 	app_config.show_sampled_packets = true;
 	app_config.show_rss_rx_packets = false;
 	app_config.show_rss_durations = false;
@@ -135,7 +136,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	// init dpdk
+	// init DPDK
 	std::string pid_str = "pid_" + std::to_string(getpid());
 	const char *eal_args[] = {"", "-a00:00.0", "-c", app_config.core_mask.c_str(), "--file-prefix", pid_str.c_str()};
 	int n_eal_args = sizeof(eal_args) / sizeof(eal_args[0]);
@@ -226,7 +227,7 @@ int main(int argc, char **argv)
 	}
 	pf_dev.src_pip_str = ip_to_string(pf_dev.src_pip);
 
-	DOCA_LOG_INFO("Port %d: Detected PF mac addr: %s, IP addr: %s, total ports: %d",
+	DOCA_LOG_INFO("Port %d: Detected PF MAC addr: %s, IP addr: %s, total ports: %d",
 		      pf_dev.port_id,
 		      pf_dev.src_mac_str.c_str(),
 		      pf_dev.src_pip_str.c_str(),

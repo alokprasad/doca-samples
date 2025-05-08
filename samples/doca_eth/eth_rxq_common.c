@@ -61,7 +61,7 @@ static doca_error_t init_doca_flow(void)
 		DOCA_LOG_ERR("Failed to set pipe_queues, err: %s", doca_error_get_name(result));
 		goto destroy_cfg;
 	}
-	result = doca_flow_cfg_set_mode_args(rxq_flow_cfg, "vnf,hws,isolated,use_doca_eth");
+	result = doca_flow_cfg_set_mode_args(rxq_flow_cfg, "vnf,isolated");
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set mode_args, err: %s", doca_error_get_name(result));
 		goto destroy_cfg;
@@ -103,6 +103,12 @@ static doca_error_t start_doca_flow_port(struct doca_dev *dev, struct doca_flow_
 	if (status != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create doca_flow_port_cfg, err: %s", doca_error_get_name(status));
 		return status;
+	}
+
+	status = doca_flow_port_cfg_set_port_id(port_cfg, 0);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port ID, err: %s", doca_error_get_name(status));
+		goto destroy_port_cfg;
 	}
 
 	status = doca_flow_port_cfg_set_dev(port_cfg, dev);
@@ -308,6 +314,52 @@ doca_error_t destroy_eth_rxq_flow_resources(struct eth_rxq_flow_resources *resou
 		doca_flow_destroy();
 		is_flow_initialized = false;
 	}
+
+	return DOCA_SUCCESS;
+}
+
+doca_error_t get_pkt_headroom(struct doca_buf *pkt, uint16_t *headroom_size)
+{
+	void *pkt_head, *pkt_data;
+	doca_error_t status;
+
+	status = doca_buf_get_head(pkt, &pkt_head);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get doca_buf head, err: %s", doca_error_get_name(status));
+		return status;
+	}
+	status = doca_buf_get_data(pkt, &pkt_data);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get doca_buf data, err: %s", doca_error_get_name(status));
+		return status;
+	}
+	*headroom_size = (uint8_t *)(pkt_data) - (uint8_t *)(pkt_head);
+
+	return DOCA_SUCCESS;
+}
+
+doca_error_t get_pkt_tailroom(struct doca_buf *pkt, uint16_t *tailroom_size)
+{
+	size_t pkt_len, pkt_data_len;
+	doca_error_t status;
+	uint16_t headroom_size;
+
+	status = get_pkt_headroom(pkt, &headroom_size);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get packet headroom size, err: %s", doca_error_get_name(status));
+		return status;
+	}
+	status = doca_buf_get_len(pkt, &pkt_len);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get doca_buf length, err: %s", doca_error_get_name(status));
+		return status;
+	}
+	status = doca_buf_get_data_len(pkt, &pkt_data_len);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get doca_buf data length, err: %s", doca_error_get_name(status));
+		return status;
+	}
+	*tailroom_size = pkt_len - pkt_data_len - headroom_size;
 
 	return DOCA_SUCCESS;
 }

@@ -84,6 +84,15 @@ doca_error_t handle_secured_packets_received(struct rte_mbuf **packet,
 					     bool bad_syndrome_check,
 					     struct ipsec_security_gw_core_ctx *ctx);
 
+/*
+ * Bind decrypt IDs to the secure port
+ *
+ * @nb_rules [in]: number of decrypt rules
+ * @initial_id [in]: initial ID for the decrypt IDs (number of encrypt IDs)
+ * @port [in]: secure port pointer
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+doca_error_t bind_decrypt_ids(int nb_rules, int initial_id, struct doca_flow_port *port);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

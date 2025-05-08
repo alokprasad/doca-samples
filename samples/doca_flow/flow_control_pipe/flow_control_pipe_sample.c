@@ -830,7 +830,7 @@ doca_error_t flow_control_pipe(int nb_queues)
 	doca_error_t result;
 	int port_id;
 	uint32_t shared_counter_ids[] = {0, 1};
-	struct doca_flow_shared_resource_cfg cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT};
+	struct doca_flow_shared_resource_cfg cfg = {0};
 	struct doca_flow_resource_query query_results_array[nb_ports];
 
 	nr_shared_resources[DOCA_FLOW_SHARED_RESOURCE_COUNTER] = 2;

@@ -33,6 +33,8 @@
 
 #include "utils.h"
 #include "flow_common.h"
+#include "flow_decrypt.h"
+#include "flow_encrypt.h"
 
 DOCA_LOG_REGISTER(IPSEC_SECURITY_GW::flow_common);
 
@@ -106,9 +108,7 @@ static doca_error_t create_doca_flow_port(int port_id,
 					  bool sn_offload_disable,
 					  struct doca_flow_port **port)
 {
-	const int max_port_str_len = 128;
 	struct doca_flow_port_cfg *port_cfg;
-	char port_id_str[max_port_str_len];
 	doca_error_t result, tmp_result;
 
 	result = doca_flow_port_cfg_create(&port_cfg);
@@ -117,10 +117,9 @@ static doca_error_t create_doca_flow_port(int port_id,
 		return result;
 	}
 
-	snprintf(port_id_str, max_port_str_len, "%d", port_id);
-	result = doca_flow_port_cfg_set_devargs(port_cfg, port_id_str);
+	result = doca_flow_port_cfg_set_port_id(port_cfg, port_id);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg devargs: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port_id: %s", doca_error_get_descr(result));
 		goto destroy_port_cfg;
 	}
 
@@ -222,11 +221,7 @@ doca_error_t ipsec_security_gw_init_doca_flow(const struct ipsec_security_gw_con
 	}
 
 	result = doca_flow_cfg_set_nr_shared_resource(flow_cfg,
-#ifdef MLX5DV_HWS
 						      MAX_NB_RULES * 2, /* for both encrypt and decrypt */
-#else
-						      DECRYPT_DUMMY_ID + 1, /* DECRYPT_DUMMY_ID is the highest ID */
-#endif
 						      DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_cfg nr_shared_resources: %s", doca_error_get_descr(result));
@@ -317,6 +312,51 @@ doca_error_t ipsec_security_gw_init_doca_flow(const struct ipsec_security_gw_con
 	return DOCA_SUCCESS;
 }
 
+doca_error_t ipsec_security_gw_init_status(struct ipsec_security_gw_config *app_cfg, int nb_queues)
+{
+	app_cfg->secured_status = (struct entries_status *)malloc(sizeof(struct entries_status) * nb_queues);
+	if (app_cfg->secured_status == NULL) {
+		DOCA_LOG_ERR("malloc() status array failed");
+		return DOCA_ERROR_NO_MEMORY;
+	}
+
+	app_cfg->unsecured_status = (struct entries_status *)malloc(sizeof(struct entries_status) * nb_queues);
+	if (app_cfg->unsecured_status == NULL) {
+		DOCA_LOG_ERR("malloc() status array failed");
+		free(app_cfg->secured_status);
+		return DOCA_ERROR_NO_MEMORY;
+	}
+
+	return DOCA_SUCCESS;
+}
+
+doca_error_t ipsec_security_gw_bind(struct ipsec_security_gw_ports_map *ports[],
+				    struct ipsec_security_gw_config *app_cfg)
+{
+	struct doca_flow_port *secured_port;
+	doca_error_t result;
+
+	if (app_cfg->flow_mode == IPSEC_SECURITY_GW_VNF) {
+		secured_port = ports[SECURED_IDX]->port;
+	} else {
+		secured_port = doca_flow_port_switch_get(NULL);
+	}
+	result = bind_encrypt_ids(app_cfg->app_rules.nb_encrypt_rules, secured_port);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	result = bind_decrypt_ids(app_cfg->app_rules.nb_decrypt_rules,
+				  app_cfg->app_rules.nb_encrypt_rules,
+				  secured_port);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
+		return result;
+	}
+	return result;
+}
+
 void doca_flow_cleanup(int nb_ports, struct ipsec_security_gw_ports_map *ports[])
 {
 	int port_id;
@@ -350,7 +390,6 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 	struct doca_flow_match match_mask;
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_cfg *pipe_cfg;
-	struct entries_status status;
 	int num_of_entries = 2;
 	uint16_t *rss_queues = NULL;
 	int i;
@@ -361,7 +400,7 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 	memset(&match, 0, sizeof(match));
 	memset(&match_mask, 0, sizeof(match_mask));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	meta.encrypt = 1;
 	meta.decrypt = 1;
@@ -430,7 +469,7 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 					  NULL,
 					  NULL,
 					  DOCA_FLOW_WAIT_FOR_BATCH,
-					  &status,
+					  &app_cfg->secured_status[0],
 					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to RSS pipe: %s", doca_error_get_descr(result));
@@ -440,7 +479,15 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 	meta.encrypt = 0;
 	meta.decrypt = 1;
 	match.meta.pkt_meta = DOCA_HTOBE32(meta.u32);
-	result = doca_flow_pipe_add_entry(0, *rss_pipe, &match, NULL, NULL, NULL, DOCA_FLOW_NO_WAIT, &status, NULL);
+	result = doca_flow_pipe_add_entry(0,
+					  *rss_pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  NULL,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to RSS pipe: %s", doca_error_get_descr(result));
 		return result;
@@ -451,7 +498,7 @@ doca_error_t create_rss_pipe(struct ipsec_security_gw_config *app_cfg,
 		DOCA_LOG_ERR("Failed to process entry: %s", doca_error_get_descr(result));
 		return result;
 	}
-	if (status.nb_processed != num_of_entries || status.failure) {
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure) {
 		DOCA_LOG_ERR("Failed to process entry");
 		return DOCA_ERROR_BAD_STATE;
 	}
@@ -521,7 +568,7 @@ static doca_error_t create_switch_port_meta_pipe(struct doca_flow_pipe **pipe)
 
 	memset(&match, 0, sizeof(match));
 
-	match.parser_meta.port_meta = UINT32_MAX;
+	match.parser_meta.port_id = UINT16_MAX;
 
 	result = doca_flow_pipe_cfg_create(&pipe_cfg, doca_flow_port_switch_get(NULL));
 	if (result != DOCA_SUCCESS) {
@@ -562,43 +609,60 @@ destroy_pipe_cfg:
  * @encrypt_root [in]: pipe to send the packets that comes from unsecured port
  * @decrypt_root [in]: pipe to send the packets that comes from secured port
  * @pipe [in]: the pipe to add entries to
+ * @app_cfg [in]: application configuration struct
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t add_switch_port_meta_entries(struct ipsec_security_gw_ports_map *ports[],
 						 struct doca_flow_pipe *encrypt_root,
 						 struct doca_flow_pipe *decrypt_root,
-						 struct doca_flow_pipe *pipe)
+						 struct doca_flow_pipe *pipe,
+						 struct ipsec_security_gw_config *app_cfg)
 {
 	struct doca_flow_match match;
 	struct doca_flow_fwd fwd;
-	struct entries_status status;
 	int num_of_entries = 2;
 	doca_error_t result;
 
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 	memset(&match, 0, sizeof(match));
 
-	status.entries_in_queue = num_of_entries;
+	app_cfg->secured_status[0].entries_in_queue = num_of_entries;
 
 	/* forward the packets from the unsecured port to encryption */
-	match.parser_meta.port_meta = ports[UNSECURED_IDX]->port_id;
+	match.parser_meta.port_id = ports[UNSECURED_IDX]->port_id;
 
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = encrypt_root;
 
-	result = doca_flow_pipe_add_entry(0, pipe, &match, NULL, NULL, &fwd, DOCA_FLOW_WAIT_FOR_BATCH, &status, NULL);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  &fwd,
+					  DOCA_FLOW_WAIT_FOR_BATCH,
+					  &app_cfg->secured_status[0],
+					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to port meta pipe: %s", doca_error_get_descr(result));
 		return result;
 	}
 
 	/* forward the packets from the secured port to decryption */
-	match.parser_meta.port_meta = ports[SECURED_IDX]->port_id;
+	match.parser_meta.port_id = ports[SECURED_IDX]->port_id;
 
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = decrypt_root;
 
-	result = doca_flow_pipe_add_entry(0, pipe, &match, NULL, NULL, &fwd, DOCA_FLOW_NO_WAIT, &status, NULL);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  &fwd,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to port meta pipe: %s", doca_error_get_descr(result));
 		return result;
@@ -607,7 +671,7 @@ static doca_error_t add_switch_port_meta_entries(struct ipsec_security_gw_ports_
 	result = doca_flow_entries_process(doca_flow_port_switch_get(NULL), 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
-	if (status.nb_processed != num_of_entries || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return DOCA_SUCCESS;
@@ -682,21 +746,22 @@ destroy_pipe_cfg:
  * @ports [in]: array of struct ipsec_security_gw_ports_map
  * @encrypt_pipe [in]: pipe to forward the packets for encryption if pkt meta second bit is one
  * @pipe [in]: pipe to add the entries
+ * @app_cfg [in]: application configuration struct
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t add_switch_pkt_meta_entries(struct ipsec_security_gw_ports_map *ports[],
 						struct doca_flow_pipe *encrypt_pipe,
-						struct doca_flow_pipe *pipe)
+						struct doca_flow_pipe *pipe,
+						struct ipsec_security_gw_config *app_cfg)
 {
 	struct doca_flow_match match;
 	struct doca_flow_fwd fwd;
-	struct entries_status status;
 	int num_of_entries = 2;
 	doca_error_t result;
 	union security_gateway_pkt_meta meta = {0};
 
 	memset(&match, 0, sizeof(match));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	meta.decrypt = 0;
 	meta.encrypt = 1;
@@ -704,7 +769,15 @@ static doca_error_t add_switch_pkt_meta_entries(struct ipsec_security_gw_ports_m
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = encrypt_pipe;
 
-	result = doca_flow_pipe_add_entry(0, pipe, &match, NULL, NULL, &fwd, DOCA_FLOW_WAIT_FOR_BATCH, &status, NULL);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  &fwd,
+					  DOCA_FLOW_WAIT_FOR_BATCH,
+					  &app_cfg->secured_status[0],
+					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to pkt meta pipe: %s", doca_error_get_descr(result));
 		return result;
@@ -716,7 +789,15 @@ static doca_error_t add_switch_pkt_meta_entries(struct ipsec_security_gw_ports_m
 	fwd.type = DOCA_FLOW_FWD_PORT;
 	fwd.port_id = ports[UNSECURED_IDX]->port_id;
 
-	result = doca_flow_pipe_add_entry(0, pipe, &match, NULL, NULL, &fwd, DOCA_FLOW_NO_WAIT, &status, NULL);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  &fwd,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add entry to pkt meta pipe: %s", doca_error_get_descr(result));
 		return result;
@@ -725,7 +806,7 @@ static doca_error_t add_switch_pkt_meta_entries(struct ipsec_security_gw_ports_m
 	result = doca_flow_entries_process(doca_flow_port_switch_get(NULL), 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
-	if (status.nb_processed != num_of_entries || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return DOCA_SUCCESS;
@@ -746,7 +827,8 @@ doca_error_t create_switch_ingress_root_pipes(struct ipsec_security_gw_ports_map
 	result = add_switch_port_meta_entries(ports,
 					      app_cfg->encrypt_pipes.encrypt_root.pipe,
 					      app_cfg->decrypt_pipes.decrypt_root.pipe,
-					      match_port_pipe);
+					      match_port_pipe,
+					      app_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add port meta pipe entries: %s", doca_error_get_descr(result));
 		return result;
@@ -768,7 +850,8 @@ doca_error_t create_switch_egress_root_pipes(struct ipsec_security_gw_ports_map 
 
 	result = add_switch_pkt_meta_entries(ports,
 					     app_cfg->encrypt_pipes.egress_ip_classifier.pipe,
-					     app_cfg->switch_pipes.pkt_meta_pipe.pipe);
+					     app_cfg->switch_pipes.pkt_meta_pipe.pipe,
+					     app_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pkt meta pipe entries: %s", doca_error_get_descr(result));
 		return result;
@@ -866,6 +949,12 @@ static void security_gateway_free_decrypt_resources(struct decrypt_pipes *decryp
 		free(decrypt_pipes->vxlan_decap_ipv4_pipe.entries_info);
 	if (decrypt_pipes->vxlan_decap_ipv6_pipe.entries_info)
 		free(decrypt_pipes->vxlan_decap_ipv6_pipe.entries_info);
+}
+
+void security_gateway_free_status_entries(struct ipsec_security_gw_config *app_cfg)
+{
+	free(app_cfg->secured_status);
+	free(app_cfg->unsecured_status);
 }
 
 void security_gateway_free_resources(struct ipsec_security_gw_config *app_cfg)

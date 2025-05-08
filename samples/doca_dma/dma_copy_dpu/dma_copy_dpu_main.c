@@ -35,7 +35,11 @@
 DOCA_LOG_REGISTER(DMA_COPY_DPU::MAIN);
 
 /* Sample's Logic */
-doca_error_t dma_copy_dpu(const char *export_desc_file_path, const char *buffer_info_file_path, const char *pcie_addr);
+doca_error_t dma_copy_dpu(const char *export_desc_file_path,
+			  const char *buffer_info_file_path,
+			  const char *pcie_addr,
+			  int num_src_buf,
+			  int num_dst_buf);
 
 /*
  * Sample main function
@@ -57,6 +61,8 @@ int main(int argc, char **argv)
 	strcpy(dma_conf.buf_info_path, "/tmp/buffer_info.txt");
 	/* No need to set cpy_txt because we get it from the host */
 	dma_conf.cpy_txt[0] = '\0';
+	dma_conf.num_dst_buf = 1;
+	dma_conf.num_src_buf = 1;
 
 	/* Register a logger backend */
 	result = doca_log_backend_create_standard();
@@ -78,7 +84,7 @@ int main(int argc, char **argv)
 	goto sample_exit;
 #endif
 
-	result = doca_argp_init("doca_dma_copy_dpu", &dma_conf);
+	result = doca_argp_init(NULL, &dma_conf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;
@@ -95,7 +101,11 @@ int main(int argc, char **argv)
 		goto argp_cleanup;
 	}
 
-	result = dma_copy_dpu(dma_conf.export_desc_path, dma_conf.buf_info_path, dma_conf.pci_address);
+	result = dma_copy_dpu(dma_conf.export_desc_path,
+			      dma_conf.buf_info_path,
+			      dma_conf.pci_address,
+			      dma_conf.num_src_buf,
+			      dma_conf.num_dst_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("dma_copy_dpu() encountered an error: %s", doca_error_get_descr(result));
 		goto argp_cleanup;

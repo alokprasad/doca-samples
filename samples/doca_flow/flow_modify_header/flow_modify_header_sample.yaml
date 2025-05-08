@@ -28,7 +28,8 @@ mode_args:
 ports_description:
   port_0: doca_dev
   port_1: doca_dev
-description: "This sample illustrates how to use DOCA Flow actions to modify the packet fields, specifically - src_mac, vlan, ttl, rsvd1"
+description: "This sample illustrates how to use DOCA Flow actions to modify the packet fields, specifically - src_mac, vlan, ttl, rsvd1.
+              Sample Command Line: ./build/doca_flow_modify_header  -a auxiliary:mlx5_core.sf.2,dv_flow_en=2 -a auxiliary:mlx5_core.sf.3,dv_flow_en=2 -- -l 60"
 use_cases:
   - name: "Flow modify header use case #1"
     args: ""
@@ -59,3 +60,4 @@ use_cases:
                 packets:
                   - Ether(src="aa:bb:cc:dd:ee:ff")/Dot1Q(vlan=2748)/IP(dst='8.8.8.8', ttl=63)/TCP()/Raw(load=b'Sent to port 0, forwarded from port 1')
                   - Ether()/IP(dst='1.1.1.1')/UDP(dport=4790)/VXLAN(flags=0xC, vni=100, reserved2=0x34)/Ether()/Raw(load=b'Sent to port 0, forwarded from port 1')
+                  - Ether()/IP(dst='1.1.1.1')/UDP(dport=4789)/VXLAN(vni=100, reserved2=0x12)/Ether()/Raw(load=b'Sent to port 0, forwarded from port 1')

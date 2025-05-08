@@ -481,7 +481,7 @@ static doca_error_t random_distribution_results(uint16_t port_id,
 	struct doca_flow_resource_query root_query_stats;
 	double actuall_percentage, total_percentage = 0;
 	uint32_t total_packets, total_dist_packets = 0;
-	uint16_t nb_packets;
+	uint16_t nb_packets, nb_hit_queues = 0;
 	doca_error_t result;
 	int i;
 
@@ -502,6 +502,7 @@ static doca_error_t random_distribution_results(uint16_t port_id,
 		actuall_percentage = GET_PERCENTAGE(nb_packets, total_packets);
 		total_dist_packets += nb_packets;
 		total_percentage += actuall_percentage;
+		nb_hit_queues += nb_packets ? 1 : 0;
 
 		DOCA_LOG_INFO("Queue %u received %u packets which is %g%% of the traffic (%u/%u)",
 			      i,
@@ -516,6 +517,10 @@ static doca_error_t random_distribution_results(uint16_t port_id,
 		      total_percentage,
 		      total_dist_packets,
 		      total_packets);
+
+	if (nb_hit_queues > 1) {
+		DOCA_LOG_INFO("Traffic is distributed on multiple queues");
+	}
 
 	return DOCA_SUCCESS;
 }

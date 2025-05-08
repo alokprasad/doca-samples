@@ -102,7 +102,10 @@ static doca_flow_pipe_resize_entry_relocate_cb entry_relocation_cb = pipe_resize
  * @pipe [out]: created pipe pointer
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
-static doca_error_t create_resizable_pipe(struct doca_flow_port *port, bool is_basic_pipe, struct doca_flow_pipe **pipe)
+static doca_error_t create_resizable_pipe(struct doca_flow_port *port,
+					  bool is_basic_pipe,
+					  uint16_t nb_queues,
+					  struct doca_flow_pipe **pipe)
 {
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	doca_error_t result;
@@ -111,6 +114,7 @@ static doca_error_t create_resizable_pipe(struct doca_flow_port *port, bool is_b
 	struct doca_flow_actions actions, *actions_arr[NB_ACTIONS_ARR];
 	struct doca_flow_fwd fwd;
 	uint16_t port_id = 0;
+	uint16_t queue_id;
 
 	if (is_basic_pipe) {
 		memset(&match, 0, sizeof(match));
@@ -164,6 +168,16 @@ static doca_error_t create_resizable_pipe(struct doca_flow_port *port, bool is_b
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg user_ctx: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
+	}
+	for (queue_id = 1; queue_id < nb_queues; queue_id += 2) {
+		/* Exclude odd queue numbers */
+		result = doca_flow_pipe_cfg_set_excluded_queue(pipe_cfg, queue_id);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg queue (%u) exclusion: %s",
+				     queue_id,
+				     doca_error_get_descr(result));
+			goto destroy_pipe_cfg;
+		}
 	}
 
 	if (is_basic_pipe) {
@@ -304,6 +318,15 @@ static doca_error_t add_resizable_pipe_entries(struct doca_flow_pipe *pipe,
 
 			do {
 				for (queue_id = 0; queue_id < nb_queues; queue_id++) {
+					/* Skip processing excluded queue #1.
+					 * The RESIZED callback can't be
+					 * invoked on excluded queues, but
+					 * there is no prevention from calling
+					 * entries_process on excluded queues
+					 * in favour of other pipes (where
+					 * those queues are not excluded). */
+					if (queue_id == 1)
+						continue;
 					result = doca_flow_entries_process(ports[0], queue_id, DEFAULT_TIMEOUT_US, 10);
 					if (result != DOCA_SUCCESS) {
 						DOCA_LOG_ERR("Failed to process entries on queue id %u: %s",
@@ -409,6 +432,7 @@ doca_error_t flow_pipe_resize(uint16_t nb_queues, struct flow_switch_ctx *ctx, b
 {
 	const int nb_ports = 3;
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct flow_resources resource = {0};
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_pipe *resizable_pipe;
@@ -421,7 +445,8 @@ doca_error_t flow_pipe_resize(uint16_t nb_queues, struct flow_switch_ctx *ctx, b
 				   &resource,
 				   nr_shared_resources,
 				   check_for_valid_entry,
-				   pipe_process_cb);
+				   pipe_process_cb,
+				   NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA Flow: %s", doca_error_get_descr(result));
 		return result;
@@ -429,7 +454,8 @@ doca_error_t flow_pipe_resize(uint16_t nb_queues, struct flow_switch_ctx *ctx, b
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
 	dev_arr[0] = ctx->doca_dev[0];
-	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, MAX_ENTRIES));
+	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();
@@ -437,7 +463,7 @@ doca_error_t flow_pipe_resize(uint16_t nb_queues, struct flow_switch_ctx *ctx, b
 	}
 
 	port_id = 0;
-	result = create_resizable_pipe(ports[port_id], is_basic_pipe, &resizable_pipe);
+	result = create_resizable_pipe(ports[port_id], is_basic_pipe, nb_queues, &resizable_pipe);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create resizable pipe: %s", doca_error_get_descr(result));
 		stop_doca_flow_ports(nb_ports, ports);

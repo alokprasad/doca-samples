@@ -298,7 +298,7 @@ doca_error_t flow_shared_counter(int nb_queues)
 	int port_id;
 	uint32_t shared_counter_ids[] = {0, 1};
 	struct doca_flow_resource_query query_results_array[nb_ports];
-	struct doca_flow_shared_resource_cfg cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT};
+	struct doca_flow_shared_resource_cfg cfg = {0};
 	struct entries_status status;
 	int num_of_entries = 4;
 	doca_error_t result;

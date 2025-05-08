@@ -243,14 +243,12 @@ doca_error_t kernel_write_client(cudaStream_t stream,
  * @stream [in]: CUDA Stream to launch the kernel
  * @rdma_gpu [in]: RDMA GPU object
  * @server_local_buf_arr_A [in]: GPU buffer with local data A
- * @server_local_buf_arr_F [in]: GPU buffer with local data F
  * @server_remote_buf_arr_F [in]: GPU buffer on remote server with data F
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 doca_error_t kernel_write_server(cudaStream_t stream,
 				 struct doca_gpu_dev_rdma *rdma_gpu,
 				 struct doca_gpu_buf_arr *server_local_buf_arr_A,
-				 struct doca_gpu_buf_arr *server_local_buf_arr_F,
 				 struct doca_gpu_buf_arr *server_remote_buf_arr_F,
 				 uint32_t connection_index);
 

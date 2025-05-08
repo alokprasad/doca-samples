@@ -32,11 +32,13 @@
 #include <doca_error.h>
 #include <doca_log.h>
 
+#include <storage_common/definitions.hpp>
+
 DOCA_LOG_REGISTER(DOCA_UTILS);
 
 using namespace std::string_literals;
 
-namespace storage::common {
+namespace storage {
 
 doca_dev *open_device(std::string const &identifier)
 {
@@ -498,4 +500,17 @@ void create_doca_logger_backend(void) noexcept
 	}
 }
 
-} /* namespace storage::common */
+doca_ec_matrix_type matrix_type_from_string(std::string const &matrix_type)
+{
+	if (matrix_type == "vandermonde") {
+		return DOCA_EC_MATRIX_TYPE_VANDERMONDE;
+	}
+
+	if (matrix_type == "cauchy") {
+		return DOCA_EC_MATRIX_TYPE_CAUCHY;
+	}
+
+	throw storage::runtime_error{DOCA_ERROR_INVALID_VALUE, "Unknown doca_ec matrix type: "s + matrix_type};
+}
+
+} /* namespace storage */

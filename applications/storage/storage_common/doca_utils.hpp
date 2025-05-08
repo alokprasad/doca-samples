@@ -39,11 +39,12 @@
 #include <doca_comch_producer.h>
 #include <doca_ctx.h>
 #include <doca_dev.h>
+#include <doca_erasure_coding.h>
 #include <doca_mmap.h>
 #include <doca_pe.h>
 #include <doca_rdma.h>
 
-namespace storage::common {
+namespace storage {
 
 /*
  * Helper to keep a RDMA connection and its associated context together as pairs
@@ -281,6 +282,14 @@ inline char const *get_buffer_bytes(doca_buf const *buf) noexcept
  */
 void create_doca_logger_backend(void) noexcept;
 
-} /* namespace storage::common */
+/*
+ * String to enum conversion
+ *
+ * @matrix_type [in]: String representation
+ * @return enum or throw if unknown
+ */
+doca_ec_matrix_type matrix_type_from_string(std::string const &matrix_type);
+
+} /* namespace storage */
 
 #endif /* APPLICATIONS_STORAGE_STORAGE_COMMON_DOCA_UTILS_HPP_ */

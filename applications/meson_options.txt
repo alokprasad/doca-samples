@@ -40,10 +40,6 @@ option('enable_pcc_application_tx_counter_sampling', type: 'boolean', value: fal
 option('enable_pcc_application_np_rx_rate', type: 'boolean', value: false,
 	description: 'Enable PCC application CC rate update via notification point RX bytes.')
 
-# Enable Use of HWS
-option('enable_mlx5dv_hws', type: 'boolean', value: true,
-	description: 'Enable HW Steering.')
-
 # gRPC versions
 option('upstream_grpc', type : 'boolean', value : true,
 	description : 'Are we compiling using upstream gRPC?')
@@ -93,6 +89,8 @@ option('enable_sta_offload', type: 'boolean', value: false,
 	description: 'Enable STA Offload application.')
 option('enable_storage', type: 'boolean', value: false,
 	description: 'Enable storage reference applications.')
+option('enable_stream_receive_perf', type: 'boolean', value: false,
+	description: 'Enable the Stream Receive Performance application.')
 option('enable_switch', type: 'boolean', value: false,
 	description: 'Enable Switch application.')
 option('enable_upf_accel', type: 'boolean', value: false,

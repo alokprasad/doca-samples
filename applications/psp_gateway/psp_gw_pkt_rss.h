@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -26,6 +26,8 @@
 #ifndef _PSP_GW_PKT_RSS_H
 #define _PSP_GW_PKT_RSS_H
 
+#include <stdint.h>
+
 struct psp_gw_app_config;
 class PSP_GatewayFlows;
 class PSP_GatewayImpl;
@@ -34,11 +36,11 @@ class PSP_GatewayImpl;
  * @brief The parameters needed by each L-Core's main loop.
  */
 struct lcore_params {
-	volatile bool *force_quit;   /*!< Indicates the application has been requested to quit */
-	psp_gw_app_config *config;   /*!< Contains configuration information */
-	psp_pf_dev *pf_dev;	     /*!< The PF device to poll */
-	PSP_GatewayFlows *psp_flows; /*!< The doca flow objects */
-	PSP_GatewayImpl *psp_svc;    /*!< The RPC service which manages tunnels */
+	volatile bool *force_quit;   /* Indicates the application has been requested to quit */
+	psp_gw_app_config *config;   /* Contains configuration information */
+	psp_pf_dev *pf_dev;	     /* The PF device to poll */
+	PSP_GatewayFlows *psp_flows; /* The DOCA Flow objects */
+	PSP_GatewayImpl *psp_svc;    /* The RPC service which manages tunnels */
 };
 
 /**
@@ -56,7 +58,7 @@ struct lcore_params {
 int lcore_pkt_proc_func(void *lcore_args);
 
 /**
- * @brief Used by the psp_svc to reinject a packet via the Host PF Tx queue after
+ * @brief Used by the psp_svc to re-inject a packet via the Host PF Tx queue after
  *        a new tunnel has been established.
  *
  * @packet [in]: the packet to submit into the egress pipeline
@@ -71,6 +73,7 @@ bool reinject_packet(struct rte_mbuf *packet, uint16_t port_id);
  * @mpool [in]: the mempool to allocate the response packet from
  * @port_id [in]: the port on which to send the ARP response
  * @queue_id [in]: the queue on which to send the ARP response
+ * @port_src_mac [in]: the source mac address of the port
  * @request_pkt [in]: the ARP request packet
  * @arp_response_meta_flag [in]: the metadata flag to set on the ARP response
  * @return: number of ARP packets handled (currently only one packet is supported)
@@ -78,7 +81,26 @@ bool reinject_packet(struct rte_mbuf *packet, uint16_t port_id);
 uint16_t handle_arp(struct rte_mempool *mpool,
 		    uint16_t port_id,
 		    uint16_t queue_id,
+		    rte_ether_addr *port_src_mac,
 		    const struct rte_mbuf *request_pkt,
 		    uint32_t arp_response_meta_flag);
+
+/**
+ * @brief Used to reply to a Neighbor Solicitation packet.
+ *
+ * @mpool [in]: the mempool to allocate the response packet from
+ * @port_id [in]: the port on which to send the Neighbor Solicitation response
+ * @queue_id [in]: the queue on which to send the Neighbor Solicitation response
+ * @port_src_mac [in]: the source mac address of the port
+ * @request_pkt [in]: the Neighbor Solicitation packet
+ * @na_response_meta_flag [in]: the metadata flag to set on the Neighbor Solicitation response
+ * @return: number of Neighbor Solicitation packets handled (currently only one packet is supported)
+ */
+uint16_t handle_neighbor_solicitation(struct rte_mempool *mpool,
+				      uint16_t port_id,
+				      uint16_t queue_id,
+				      rte_ether_addr *port_src_mac,
+				      const struct rte_mbuf *request_pkt,
+				      uint32_t na_response_meta_flag);
 
 #endif // _PSP_GW_PKT_RSS_H

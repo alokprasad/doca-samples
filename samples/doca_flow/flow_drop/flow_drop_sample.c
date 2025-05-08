@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2022-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -32,6 +32,12 @@
 #include <doca_flow.h>
 
 #include "flow_common.h"
+
+typedef enum {
+	CLASSIFIER_PIPE_ENTRY = 0,
+	DROP_PIPE_ENTRY = 1,
+	HAIRPIN_PIPE_ENTRY = 2,
+} pipe_entry_index;
 
 DOCA_LOG_REGISTER(FLOW_DROP);
 
@@ -213,6 +219,7 @@ static doca_error_t create_drop_pipe(struct doca_flow_port *port,
 	struct doca_flow_fwd fwd_miss;
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	doca_error_t result;
+	const char *label = "Matches IPv4 TCP packets with changeable source and destination IP addresses and ports";
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
@@ -247,6 +254,11 @@ static doca_error_t create_drop_pipe(struct doca_flow_port *port,
 	result = set_flow_pipe_cfg(pipe_cfg, "DROP_PIPE", DOCA_FLOW_PIPE_BASIC, false);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg: %s", doca_error_get_descr(result));
+		goto destroy_pipe_cfg;
+	}
+	result = doca_flow_pipe_cfg_set_label(pipe_cfg, label);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_pipe_cfg label: %s", doca_error_get_descr(result));
 		goto destroy_pipe_cfg;
 	}
 	result = doca_flow_pipe_cfg_set_match(pipe_cfg, &match, NULL);
@@ -373,7 +385,7 @@ doca_error_t flow_drop(int nb_queues)
 			return result;
 		}
 
-		result = add_pipe_entry(hairpin_pipe, &status, &entry[port_id][2]);
+		result = add_pipe_entry(hairpin_pipe, &status, &entry[port_id][HAIRPIN_PIPE_ENTRY]);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add hairpin entry: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -389,7 +401,7 @@ doca_error_t flow_drop(int nb_queues)
 			return result;
 		}
 
-		result = add_drop_pipe_entry(drop_pipe, &status, &entry[port_id][1]);
+		result = add_drop_pipe_entry(drop_pipe, &status, &entry[port_id][DROP_PIPE_ENTRY]);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add entry to drop pipe: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -405,7 +417,7 @@ doca_error_t flow_drop(int nb_queues)
 			return result;
 		}
 
-		result = add_pipe_entry(classifier_pipe, &status, &entry[port_id][0]);
+		result = add_pipe_entry(classifier_pipe, &status, &entry[port_id][CLASSIFIER_PIPE_ENTRY]);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add entry to classifier: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -449,7 +461,7 @@ doca_error_t flow_drop(int nb_queues)
 		doca_flow_port_pipes_dump(ports[port_id], fd);
 		fclose(fd);
 
-		result = doca_flow_resource_query_entry(entry[port_id][0], &query_stats);
+		result = doca_flow_resource_query_entry(entry[port_id][CLASSIFIER_PIPE_ENTRY], &query_stats);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to query entry: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -462,7 +474,7 @@ doca_error_t flow_drop(int nb_queues)
 		DOCA_LOG_INFO("\tTotal packets: %ld", query_stats.counter.total_pkts);
 		DOCA_LOG_INFO("--------------");
 
-		result = doca_flow_resource_query_entry(entry[port_id][1], &query_stats);
+		result = doca_flow_resource_query_entry(entry[port_id][DROP_PIPE_ENTRY], &query_stats);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to query entry: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);
@@ -474,7 +486,7 @@ doca_error_t flow_drop(int nb_queues)
 		DOCA_LOG_INFO("\tTotal packets: %ld", query_stats.counter.total_pkts);
 		DOCA_LOG_INFO("--------------");
 
-		result = doca_flow_resource_query_entry(entry[port_id][2], &query_stats);
+		result = doca_flow_resource_query_entry(entry[port_id][HAIRPIN_PIPE_ENTRY], &query_stats);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to query entry: %s", doca_error_get_descr(result));
 			stop_doca_flow_ports(nb_ports, ports);

@@ -47,6 +47,8 @@ struct dma_config {
 	char cpy_txt[MAX_TXT_SIZE];		      /* Text to copy between the two local buffers */
 	char export_desc_path[MAX_ARG_SIZE];	      /* Path to save/read the exported descriptor file */
 	char buf_info_path[MAX_ARG_SIZE];	      /* Path to save/read the buffer information file */
+	int num_src_buf;			      /* Number of linked_list doca_buf element for the source buffer */
+	int num_dst_buf; /* Number of linked_list doca_buf element for the destination buffer */
 };
 
 struct dma_resources {
@@ -69,10 +71,11 @@ doca_error_t register_dma_params(bool is_remote);
  * Allocate DOCA DMA resources
  *
  * @pcie_addr [in]: PCIe address of device to open
+ * @num_buf [in]: Number of doca_buf to allocate
  * @resources [out]: Structure containing all DMA resources
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-doca_error_t allocate_dma_resources(const char *pcie_addr, struct dma_resources *resources);
+doca_error_t allocate_dma_resources(const char *pcie_addr, int num_buf, struct dma_resources *resources);
 
 /*
  * Destroy DOCA DMA resources

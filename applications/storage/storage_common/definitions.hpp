@@ -26,7 +26,12 @@
 #ifndef APPLICATIONS_STORAGE_STORAGE_COMMON_DEFINITIONS_HPP_
 #define APPLICATIONS_STORAGE_STORAGE_COMMON_DEFINITIONS_HPP_
 
-namespace storage::common {
+#include <stdexcept>
+#include <string>
+
+#include <doca_error.h>
+
+namespace storage {
 
 /*
  * The size of a CPU cache line. This value is typically right but it can be modified if the given platform has a
@@ -39,6 +44,49 @@ uint32_t constexpr cache_line_size = 64;
  */
 uint32_t constexpr max_concurrent_control_messages = 8;
 
-} /* namespace storage::common */
+/*
+ * Header data placed before the data of a compressed block
+ */
+struct compressed_block_header {
+	uint32_t original_size;
+	uint32_t compressed_size;
+};
+
+/*
+ * Trailer data placed after the data of a compressed block
+ */
+struct compressed_block_trailer {
+	uint32_t reserved;
+};
+
+/*
+ *
+ */
+class runtime_error : public std::runtime_error {
+public:
+	~runtime_error() override = default;
+	[[maybe_unused]] runtime_error(doca_error_t error, std::string const &msg)
+		: std::runtime_error{msg},
+		  m_err{error}
+	{
+	}
+	[[maybe_unused]] runtime_error(doca_error_t error, char const *msg) : std::runtime_error{msg}, m_err{error}
+	{
+	}
+	runtime_error(runtime_error const &) = default;
+	runtime_error(runtime_error &&) noexcept = default;
+	runtime_error &operator=(runtime_error const &) = default;
+	runtime_error &operator=(runtime_error &&) noexcept = default;
+
+	[[nodiscard]] doca_error_t get_doca_error() const noexcept
+	{
+		return m_err;
+	}
+
+private:
+	doca_error_t m_err;
+};
+
+} /* namespace storage */
 
 #endif /* APPLICATIONS_STORAGE_STORAGE_COMMON_DEFINITIONS_HPP_ */

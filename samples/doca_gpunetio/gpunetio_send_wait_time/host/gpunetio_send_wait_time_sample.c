@@ -88,7 +88,7 @@ static doca_error_t init_doca_flow(void)
 		return result;
 	}
 
-	result = doca_flow_cfg_set_mode_args(queue_flow_cfg, "vnf,hws,isolated,use_doca_eth");
+	result = doca_flow_cfg_set_mode_args(queue_flow_cfg, "vnf,isolated");
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_cfg mode_args: %s", doca_error_get_descr(result));
 		doca_flow_cfg_destroy(queue_flow_cfg);
@@ -121,6 +121,13 @@ static doca_error_t start_doca_flow(struct doca_dev *dev)
 	result = doca_flow_port_cfg_create(&port_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create doca_flow_port_cfg: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	result = doca_flow_port_cfg_set_port_id(port_cfg, 0);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port ID: %s", doca_error_get_descr(result));
+		doca_flow_port_cfg_destroy(port_cfg);
 		return result;
 	}
 
@@ -440,7 +447,6 @@ static doca_error_t destroy_txq(struct txq_queue *txq)
 	}
 
 	doca_flow_port_stop(df_port);
-	doca_flow_destroy();
 
 	result = doca_dev_close(txq->ddev);
 	if (result != DOCA_SUCCESS) {

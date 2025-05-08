@@ -57,6 +57,9 @@ struct eth_rxq_sample_objects {
 	uint64_t total_cb_counter;		      /* Counter for all call-back calls */
 	uint64_t success_cb_counter;		      /* Counter for successful call-back calls */
 	uint16_t rxq_flow_queue_id;		      /* DOCA ETH RXQ's flow queue ID */
+	bool timestamp_enable;			      /* timestamp enable */
+	uint16_t headroom_size;			      /* headroom size */
+	uint16_t tailroom_size;			      /* tailroom size */
 };
 
 /*
@@ -75,6 +78,9 @@ static void event_managed_rcv_success_cb(struct doca_eth_rxq_event_managed_recv 
 	size_t packet_size;
 	const uint32_t *metadata_array;
 	uint32_t flow_tag, rx_hash;
+	uint64_t timestamp;
+	uint16_t headroom_size;
+	uint16_t tailroom_size;
 
 	state = event_user_data.ptr;
 	state->total_cb_counter++;
@@ -102,11 +108,38 @@ static void event_managed_rcv_success_cb(struct doca_eth_rxq_event_managed_recv 
 	else
 		DOCA_LOG_INFO("Received a packet with rx_hash %u", rx_hash);
 
+	if (state->timestamp_enable) {
+		status = doca_eth_rxq_event_managed_recv_get_timestamp(event_managed_recv, &timestamp);
+		if (status != DOCA_SUCCESS)
+			DOCA_LOG_ERR("Failed to get timestamp, err: %s", doca_error_get_name(status));
+		else
+			DOCA_LOG_INFO("Received a packet with timestamp %lu", timestamp);
+	}
+
 	status = doca_buf_get_data_len(pkt, &packet_size);
 	if (status != DOCA_SUCCESS)
-		DOCA_LOG_ERR("Failed to get received packet size");
+		DOCA_LOG_ERR("Failed to get received packet data size");
 	else
-		DOCA_LOG_INFO("Received a packet of size %lu successfully", packet_size);
+		DOCA_LOG_INFO("Received a packet with data size %lu successfully", packet_size);
+
+	if (state->headroom_size > 0) {
+		status = get_pkt_headroom(pkt, &headroom_size);
+		if (status != DOCA_SUCCESS)
+			DOCA_LOG_ERR("Failed to get packet headroom size, err: %s", doca_error_get_name(status));
+		else
+			DOCA_LOG_INFO("Received a packet with headroom size %d, requested %d",
+				      headroom_size,
+				      state->headroom_size);
+	}
+	if (state->tailroom_size > 0) {
+		status = get_pkt_tailroom(pkt, &tailroom_size);
+		if (status != DOCA_SUCCESS)
+			DOCA_LOG_ERR("Failed to get packet tailroom size, err: %s", doca_error_get_name(status));
+		else
+			DOCA_LOG_INFO("Received a packet with tailroom size %d, requested %d",
+				      tailroom_size,
+				      state->tailroom_size);
+	}
 
 	status = doca_buf_dec_refcount(pkt, NULL);
 	if (status != DOCA_SUCCESS)
@@ -253,6 +286,24 @@ static doca_error_t create_eth_rxq_ctx(struct eth_rxq_sample_objects *state)
 		goto destroy_eth_rxq;
 	}
 
+	status = doca_eth_rxq_set_timestamp(state->eth_rxq, state->timestamp_enable);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set enable timestamp, err: %s", doca_error_get_name(status));
+		goto destroy_eth_rxq;
+	}
+
+	status = doca_eth_rxq_set_packet_headroom(state->eth_rxq, state->headroom_size);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set packet headroom size, err: %s", doca_error_get_name(status));
+		goto destroy_eth_rxq;
+	}
+
+	status = doca_eth_rxq_set_packet_tailroom(state->eth_rxq, state->tailroom_size);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set packet tailroom size, err: %s", doca_error_get_name(status));
+		goto destroy_eth_rxq;
+	}
+
 	state->core_resources.core_objs.ctx = doca_eth_rxq_as_doca_ctx(state->eth_rxq);
 	if (state->core_resources.core_objs.ctx == NULL) {
 		DOCA_LOG_ERR("Failed to retrieve DOCA ETH RXQ context as DOCA context, err: %s",
@@ -307,22 +358,20 @@ static void eth_rxq_cleanup(struct eth_rxq_sample_objects *state)
 	if (state->flow_resources.root_pipe != NULL)
 		doca_flow_pipe_destroy(state->flow_resources.root_pipe);
 
-	if (state->eth_rxq != NULL) {
-		status = destroy_eth_rxq_ctx(state);
+	if (state->flow_resources.df_port != NULL) {
+		status = doca_flow_port_stop(state->flow_resources.df_port);
 		if (status != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to destroy eth_rxq_ctx, err: %s", doca_error_get_name(status));
 			return;
 		}
 	}
 
-	if (state->flow_resources.df_port != NULL) {
-		status = doca_flow_port_stop(state->flow_resources.df_port);
+	if (state->eth_rxq != NULL) {
+		status = destroy_eth_rxq_ctx(state);
 		if (status != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to stop DOCA flow port, err: %s", doca_error_get_name(status));
+			DOCA_LOG_ERR("Failed to destroy eth_rxq_ctx, err: %s", doca_error_get_name(status));
 			return;
 		}
-
-		doca_flow_destroy();
 	}
 
 	if (state->core_resources.core_objs.dev != NULL) {
@@ -332,6 +381,9 @@ static void eth_rxq_cleanup(struct eth_rxq_sample_objects *state)
 			return;
 		}
 	}
+
+	if (state->flow_resources.df_port != NULL)
+		doca_flow_destroy();
 }
 
 /*
@@ -379,12 +431,20 @@ static doca_error_t check_device(struct doca_devinfo *devinfo)
  * Run ETH RXQ managed mempool mode receive
  *
  * @ib_dev_name [in]: IB device name of a doca device
+ * @timestamp_enable [in]: timestamp enable
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise
  */
-doca_error_t eth_rxq_managed_mempool_receive(const char *ib_dev_name)
+doca_error_t eth_rxq_managed_mempool_receive(const char *ib_dev_name,
+					     bool timestamp_enable,
+					     uint16_t headroom_size,
+					     uint16_t tailroom_size)
 {
 	doca_error_t status;
-	struct eth_rxq_sample_objects state = {.total_cb_counter = 0, .success_cb_counter = 0};
+	struct eth_rxq_sample_objects state = {.total_cb_counter = 0,
+					       .success_cb_counter = 0,
+					       .timestamp_enable = timestamp_enable,
+					       .headroom_size = headroom_size,
+					       .tailroom_size = tailroom_size};
 	struct eth_core_config cfg = {.mmap_size = 0,
 				      .inventory_num_elements = 0,
 				      .check_device = check_device,
@@ -397,6 +457,8 @@ doca_error_t eth_rxq_managed_mempool_receive(const char *ib_dev_name)
 						       MAX_PKT_SIZE,
 						       MAX_BURST_SIZE,
 						       LOG_MAX_LRO_PKT_SIZE,
+						       headroom_size,
+						       tailroom_size,
 						       &(cfg.mmap_size));
 	if (status != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to estimate mmap size for ETH RXQ, err: %s", doca_error_get_name(status));

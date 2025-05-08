@@ -142,7 +142,7 @@ int main(int argc, char **argv)
 	goto sample_exit;
 #endif
 
-	result = doca_argp_init("doca_devemu_virtiofs_device_create", &devemu_pci_cfg);
+	result = doca_argp_init(NULL, &devemu_pci_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

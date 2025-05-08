@@ -73,6 +73,8 @@ struct aes_gcm_cfg {
 	uint32_t tag_size;			      /* Authentication tag size */
 	uint32_t aad_size;			      /* Additional authenticated data size */
 	enum aes_gcm_mode mode;			      /* AES-GCM task type */
+	int num_src_buf;			      /* Number of linked_list doca_buf element for the source buffer */
+	int num_dst_buf; /* Number of linked_list doca_buf element for the destination buffer */
 };
 
 /* DOCA AES-GCM resources */

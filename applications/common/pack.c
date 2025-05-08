@@ -122,10 +122,10 @@ uint32_t unpack_uint32(uint8_t **buffer)
 	uint32_t value = 0;
 	uint8_t *read_head = *buffer;
 
-	value |= SET_BYTE(*read_head++, 3);
-	value |= SET_BYTE(*read_head++, 2);
-	value |= SET_BYTE(*read_head++, 1);
-	value |= SET_BYTE(*read_head++, 0);
+	value |= SET_BYTE((uint32_t)(*read_head++), 3);
+	value |= SET_BYTE((uint32_t)(*read_head++), 2);
+	value |= SET_BYTE((uint32_t)(*read_head++), 1);
+	value |= SET_BYTE((uint32_t)(*read_head++), 0);
 	*buffer = read_head;
 
 	return value;

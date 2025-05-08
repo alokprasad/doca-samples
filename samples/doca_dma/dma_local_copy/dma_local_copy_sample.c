@@ -89,9 +89,16 @@ static doca_error_t register_memory_range_and_start_mmap(struct doca_mmap *mmap,
  * @dst_buffer [in]: Destination buffer
  * @src_buffer [in]: Source buffer to copy
  * @length [in]: Buffer's size
+ * @num_src_buf [in]: Number of source doca_buf to allocate
+ * @num_dst_buf [in]: Number of destination doca_buf to allocate
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, char *src_buffer, size_t length)
+doca_error_t dma_local_copy(const char *pcie_addr,
+			    char *dst_buffer,
+			    char *src_buffer,
+			    size_t length,
+			    int num_src_buf,
+			    int num_dst_buf)
 {
 	struct dma_resources resources;
 	struct program_core_objects *state = &resources.state;
@@ -118,7 +125,7 @@ doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, char *src_b
 	}
 
 	/* Allocate resources */
-	result = allocate_dma_resources(pcie_addr, &resources);
+	result = allocate_dma_resources(pcie_addr, num_src_buf + num_dst_buf, &resources);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to allocate DMA resources: %s", doca_error_get_descr(result));
 		return result;
@@ -153,7 +160,13 @@ doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, char *src_b
 	memset(dst_buffer, 0, length);
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->buf_inv, state->src_mmap, src_buffer, length, &src_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       state->src_mmap,
+				       src_buffer,
+				       length,
+				       num_src_buf,
+				       true,
+				       &src_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing source buffer: %s",
 			     doca_error_get_descr(result));
@@ -161,7 +174,13 @@ doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, char *src_b
 	}
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->buf_inv, state->dst_mmap, dst_buffer, length, &dst_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       state->dst_mmap,
+				       dst_buffer,
+				       length,
+				       num_dst_buf,
+				       false,
+				       &dst_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing destination buffer: %s",
 			     doca_error_get_descr(result));
@@ -184,14 +203,6 @@ doca_error_t dma_local_copy(const char *pcie_addr, char *dst_buffer, char *src_b
 	resources.num_remaining_tasks = 1;
 
 	task = doca_dma_task_memcpy_as_task(dma_task);
-
-	/* Set data position in src_buff */
-	result = doca_buf_set_data(src_doca_buf, src_buffer, length);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set data for DOCA buffer: %s", doca_error_get_descr(result));
-		doca_task_free(task);
-		goto destroy_dst_buf;
-	}
 
 	/* Submit DMA task */
 	result = doca_task_submit(task);

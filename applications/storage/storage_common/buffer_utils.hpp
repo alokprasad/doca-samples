@@ -31,9 +31,9 @@
 #include <string>
 #include <vector>
 
-#include <endian.h>
+#include <storage_common/os_utils.hpp>
 
-namespace storage::common {
+namespace storage {
 
 /*
  * Emplace an uint8_t value into a byte array
@@ -252,6 +252,6 @@ void bytes_to_hex_str(char const *bytes, size_t byte_count, std::string &str);
  */
 size_t aligned_size(size_t alignment, size_t size);
 
-} /* namespace storage::common */
+} /* namespace storage */
 
 #endif /* APPLICATIONS_STORAGE_STORAGE_COMMON_MESSAGE_UTILS_HPP_ */

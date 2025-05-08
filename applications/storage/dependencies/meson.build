@@ -25,4 +25,6 @@
 # DOCA SDK dependencies
 app_doca_depends += ['argp']
 app_doca_depends += ['comch']
+app_doca_depends += ['compress']
+app_doca_depends += ['erasure_coding']
 app_doca_depends += ['rdma']

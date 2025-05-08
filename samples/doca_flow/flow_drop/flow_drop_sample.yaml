@@ -28,6 +28,9 @@ mode_args:
 ports_description:
   port_0: doca_dev
   port_1: doca_dev
+description: "This sample illustrates how to build a pipe with 5-tuple match, forward action drop, and forward miss action to hairpin 
+              pipe. The sample also demonstrates how to dump pipe information to a file and query entry.
+              Sample Command Line: ./build/doca_flow_drop  -a auxiliary:mlx5_core.sf.2,dv_flow_en=2 -a auxiliary:mlx5_core.sf.3,dv_flow_en=2 -- -l 60"
 use_cases:
   - name: "Flow drop use case #1"
     args: ""
@@ -36,18 +39,18 @@ use_cases:
         packets_to_send:
           - receiving_port: 0
             packets:
-              - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=100, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=26238, src='1.2.3.4', dst='8.8.8.8')/TCP(sport=1234, dport=80, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=10759, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-hit::should-be-dropped::index[1]***')
-              - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=104, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=25722, src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=45432, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-not-hit::should-pass-as-is::index[2]***')
+              - Ether()/IP(src='1.2.3.4', dst='8.8.8.8')/TCP(sport=1234, dport=80)/Raw(load=b'Sent to port 0, hit drop pipe match, dropped')
+              - Ether()/IP(src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321)/Raw(load=b'Sent to port 0, missed drop pipe match, forwarded from port 1')
           - receiving_port: 1
             packets:
-              - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=100, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=26238, src='1.2.3.4', dst='8.8.8.8')/TCP(sport=1234, dport=80, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=10759, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-hit::should-be-dropped::index[1]***')
-              - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=104, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=25722, src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=45432, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-not-hit::should-pass-as-is::index[2]***')
+              - Ether()/IP(src='1.2.3.4', dst='8.8.8.8')/TCP(sport=1234, dport=80)/Raw(load=b'Sent to port 1, hit drop pipe match, dropped')
+              - Ether()/IP(src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321)/Raw(load=b'Sent to port 1, missed drop pipe match, forwarded from port 0')
         validation:
           - type: packet
             expected_packets:
               - forwarding_port: 0
                 packets:
-                  - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=104, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=25722, src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=45432, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-not-hit::should-pass-as-is::index[2]***')
+                  - Ether()/IP(src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321)/Raw(load=b'Sent to port 1, missed drop pipe match, forwarded from port 0')
               - forwarding_port: 1
                 packets:
-                  - Ether(dst='00:00:5e:00:01:01', src='00:50:56:2f:02:f6', type=2048)/IP(version=4, ihl=5, tos=0, len=104, id=1, flags=0, frag=0, ttl=64, proto=6, chksum=25722, src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321, seq=0, ack=0, dataofs=5, reserved=0, flags=2, window=8192, chksum=45432, urgptr=0)/Raw(load=b'***IPv4-packet-that-will-not-hit::should-pass-as-is::index[2]***')
+                  - Ether()/IP(src='2.2.2.2', dst='9.9.9.9')/TCP(sport=1234, dport=4321)/Raw(load=b'Sent to port 0, missed drop pipe match, forwarded from port 1')

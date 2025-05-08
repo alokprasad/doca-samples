@@ -83,7 +83,7 @@ int main(int argc, char **argv)
 	goto sample_exit;
 #endif
 
-	result = doca_argp_init("doca_dma_copy_host", &dma_conf);
+	result = doca_argp_init(NULL, &dma_conf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

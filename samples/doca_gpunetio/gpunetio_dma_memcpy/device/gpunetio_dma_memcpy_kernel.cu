@@ -45,24 +45,9 @@ cuda_kernel_print_gpu_buffer(uintptr_t gpu_buffer_addr,
 
 	printf("CUDA KERNEL INFO: The GPU destination buffer value after the memcpy: %s \n", (char*)gpu_buffer_addr);
 
-	result = doca_gpu_dev_buf_get_buf(src_gpu_buf_arr, threadIdx.x, &src_buf);
-	if (result != DOCA_SUCCESS) {
-		printf("Error %d doca_gpu_dev_buf_get_buf src\n", result);
-		return;
-	}
-
-	result = doca_gpu_dev_buf_get_buf(dst_gpu_buf_arr, threadIdx.x, &dst_buf);
-	if (result != DOCA_SUCCESS) {
-		printf("Error %d doca_gpu_dev_buf_get_buf dst\n", result);
-		return;
-	}
-
-	result = doca_gpu_dev_dma_memcpy(dma_gpu, src_buf, 0, dst_buf, 0, DMA_MEMCPY_SIZE);
-	if (result != DOCA_SUCCESS) {
-		printf("Error %d doca_gpu_dev_dma_memcpy\n", result);
-		return;
-	}
-
+	doca_gpu_dev_buf_get_buf(src_gpu_buf_arr, threadIdx.x, &src_buf);
+	doca_gpu_dev_buf_get_buf(dst_gpu_buf_arr, threadIdx.x, &dst_buf);
+	doca_gpu_dev_dma_memcpy(dma_gpu, src_buf, 0, dst_buf, 0, DMA_MEMCPY_SIZE);
 	/* Not really needed with only 1 CUDA thread */
 	__syncthreads();
 

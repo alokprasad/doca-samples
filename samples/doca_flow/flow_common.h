@@ -26,6 +26,10 @@
 #ifndef FLOW_COMMON_H_
 #define FLOW_COMMON_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <rte_byteorder.h>
 #include <rte_common.h>
 
@@ -57,10 +61,15 @@
 #ifndef MAX
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #endif
-#define MIN_ACTIONS_MEM_SIZE_PER_QUEUE (64) /* Minimal actions memory size required per queue */
+#define MIN_ACTIONS_MEM_SIZE_PER_QUEUE (256) /* Minimal actions memory size required per queue */
+#define INITIAL_ACTIONS_MEM_SIZE (2048)	     /* Needed when app creates a small number of entries */
 #define ACTIONS_MEM_SIZE(nr_queues, entries) \
-	rte_align32pow2(MAX((uint32_t)(entries * DOCA_FLOW_MAX_ENTRY_ACTIONS_MEM_SIZE), \
-			    (uint32_t)(nr_queues * MIN_ACTIONS_MEM_SIZE_PER_QUEUE))) /* Total actions memory size */
+	rte_align32pow2( \
+		MAX((uint32_t)(entries * DOCA_FLOW_MAX_ENTRY_ACTIONS_MEM_SIZE), \
+		    (uint32_t)(nr_queues * MIN_ACTIONS_MEM_SIZE_PER_QUEUE + INITIAL_ACTIONS_MEM_SIZE))) /* Total \
+												 actions \
+												 memory size \
+											       */
 #define ARRAY_DIM(a) (sizeof(a) / sizeof((a)[0]))
 #define ARRAY_INIT(array, val) \
 	do { \
@@ -221,5 +230,9 @@ doca_error_t set_flow_pipe_cfg(struct doca_flow_pipe_cfg *cfg,
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise.
  */
 doca_error_t flow_process_entries(struct doca_flow_port *port, struct entries_status *status, uint32_t nr_entries);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* FLOW_COMMON_H_ */

@@ -42,27 +42,6 @@ DOCA_LOG_REGISTER(FLOW_ECMP::MAIN);
 doca_error_t flow_ecmp(int nb_queues, int nb_ports, struct flow_switch_ctx *ctx);
 
 /*
- * Get number of DPDK ports created during EAL init according to user arguments.
- *
- * @return: number of created DPDK ports.
- */
-static uint8_t get_dpdk_nb_ports(void)
-{
-	uint8_t nb_ports = 0;
-	uint16_t port_id;
-
-	for (port_id = 0; port_id < RTE_MAX_ETHPORTS; port_id++) {
-		if (!rte_eth_dev_is_valid_port(port_id))
-			continue;
-
-		nb_ports++;
-		DOCA_LOG_INFO("Port ID %u is valid DPDK port", port_id);
-	}
-
-	return nb_ports;
-}
-
-/*
  * Sample main function
  *
  * @argc [in]: command line arguments size
@@ -97,7 +76,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the sample");
 
-	result = doca_argp_init("doca_flow_ecmp", &ctx);
+	result = doca_argp_init(NULL, &ctx);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

@@ -116,7 +116,7 @@ int main(int argc, char **argv)
 	DOCA_LOG_INFO("Starting the sample");
 
 	/* ARGP initialization */
-	result = doca_argp_init("doca_rmax_set_clock", &pcie_address);
+	result = doca_argp_init(NULL, &pcie_address);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

@@ -322,7 +322,7 @@ static doca_error_t random_sampling_results(struct doca_flow_pipe_entry *root_en
  */
 doca_error_t flow_sampling(int nb_queues, struct flow_switch_ctx *ctx)
 {
-	int nb_ports = 3;
+	int nb_ports = 2;
 	struct flow_resources resource = {0};
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];

@@ -104,12 +104,16 @@ struct simple_fwd_ft_key {
 	doca_be32_t ipv4_2; /* Second Ipv4 address */
 	doca_be16_t port_1; /* First port address */
 	doca_be16_t port_2; /* Second port address */
-	doca_be32_t vni;    /* VNI value */
-	uint8_t protocol;   /* Protocol type */
-	uint8_t tun_type;   /* Supported tunneling type (GRE, GTP or VXLAN) */
-	uint16_t port_id;   /* Port identifier on which the packet was received */
-	uint8_t pad[4];	    /* Padding bytes in the packet */
-	uint32_t rss_hash;  /* RSS hash value */
+	union {
+		doca_be32_t vni;     /* VNI value */
+		doca_be32_t teid;    /* GTPU TEID value */
+		doca_be32_t gre_key; /* GRE key value */
+	};
+	uint8_t protocol;  /* Protocol type */
+	uint8_t tun_type;  /* Supported tunneling type (GRE, GTP or VXLAN) */
+	uint16_t port_id;  /* Port identifier on which the packet was received */
+	uint8_t pad[4];	   /* Padding bytes in the packet */
+	uint32_t rss_hash; /* RSS hash value */
 };
 
 /*

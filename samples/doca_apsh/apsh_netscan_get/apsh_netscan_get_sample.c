@@ -31,7 +31,54 @@
 #include "apsh_common.h"
 
 DOCA_LOG_REGISTER(NETSCAN_GET);
+#define BUFFER_SIZE 2048
 
+void collect_interface_data(struct doca_apsh_netscan *connection, char *buffer)
+{
+	int offset = 0;
+	char *interface_name = doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_NAME);
+	if (interface_name == NULL) {
+		buffer[0] = '-';
+		buffer[1] = '\0';
+		return;
+	}
+	offset += snprintf(buffer + offset,
+			   BUFFER_SIZE - offset,
+			   "Interface name: %s",
+			   doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_NAME));
+
+	uint32_t ipv4_arr_size =
+		doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_IPV4_ARR_SIZE);
+	if (ipv4_arr_size > 0) {
+		offset += snprintf(buffer + offset, BUFFER_SIZE - offset, ", IPV4: ");
+		char **ipv4_addr_arr =
+			doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_IPV4_ARR);
+		// prints only first 5 IPV4 addresses
+		for (uint32_t j = 0; j < ipv4_arr_size && j < 5; j++) {
+			offset += snprintf(buffer + offset, BUFFER_SIZE - offset, "%s ", ipv4_addr_arr[j]);
+		}
+	}
+	uint32_t ipv6_arr_size =
+		doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_IPV6_ARR_SIZE);
+	if (ipv6_arr_size > 0) {
+		offset += snprintf(buffer + offset, BUFFER_SIZE - offset, ", IPV6: ");
+		char **ipv6_addr_arr =
+			doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_IPV6_ARR);
+		// prints only first 5 IPV6 addresses
+		for (uint32_t j = 0; j < ipv6_arr_size && j < 5; j++) {
+			offset += snprintf(buffer + offset, BUFFER_SIZE - offset, "%s  ", ipv6_addr_arr[j]);
+		}
+	}
+	uint32_t mac_arr_size = doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_MAC_ARR_SIZE);
+	if (mac_arr_size > 0) {
+		offset += snprintf(buffer + offset, BUFFER_SIZE - offset, ", MAC address: ");
+		char **mac_addr_arr = doca_apsh_netscan_info_get(connection, DOCA_APSH_NETSCAN_LINUX_INTERFACE_MAC_ARR);
+		// prints only first 5 MAC addresses
+		for (uint32_t j = 0; j < mac_arr_size && j < 5; j++) {
+			offset += snprintf(buffer + offset, BUFFER_SIZE - offset, "%s  ", mac_addr_arr[j]);
+		}
+	}
+}
 /*
  * Calls the DOCA APSH API function that matches this sample name and prints the result
  *
@@ -90,12 +137,15 @@ doca_error_t netscan_get(const char *dma_device_name,
 			doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_REMOTE_PORT),
 			doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_STATE));
 		if (os_type == DOCA_APSH_SYSTEM_LINUX) {
-			DOCA_LOG_INFO("\tConnection %d  -  FD: %u, family: %s, type: %s, filter %s",
+			char interfaces_data_buffer[BUFFER_SIZE];
+			collect_interface_data(connections[i], interfaces_data_buffer);
+			DOCA_LOG_INFO("\tConnection %d  -  FD: %u, family: %s, type: %s, filter %s, Interface data: %s",
 				      i,
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FD),
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FAMILY),
 				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_TYPE),
-				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FILTER));
+				      doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_LINUX_FILTER),
+				      interfaces_data_buffer);
 		}
 		if (os_type == DOCA_APSH_SYSTEM_LINUX &&
 		    !strcmp(doca_apsh_netscan_info_get(connections[i], DOCA_APSH_NETSCAN_PROTOCOL), "TCP")) {

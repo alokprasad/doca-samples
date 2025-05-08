@@ -301,7 +301,7 @@ static doca_error_t show_ecmp_results(uint32_t counter_id, struct doca_flow_pipe
 		percentage = GET_PERCENTAGE(nb_packets, total_packets);
 
 		DOCA_LOG_INFO("Port %u received %u packets which is %g%% of the traffic (%u/%u)",
-			      i,
+			      i + 1,
 			      nb_packets,
 			      percentage,
 			      nb_packets,

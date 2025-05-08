@@ -60,7 +60,7 @@ int main(int argc, char **argv)
 	if (result != DOCA_SUCCESS)
 		goto app_exit;
 
-	result = doca_argp_init("doca_urom_rdmo", &rdmo_cfg.common);
+	result = doca_argp_init(NULL, &rdmo_cfg.common);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto app_exit;

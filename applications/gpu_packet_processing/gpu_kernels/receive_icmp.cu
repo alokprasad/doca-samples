@@ -125,19 +125,8 @@ __global__ void cuda_kernel_receive_icmp(uint32_t *exit_cond, struct doca_gpu_et
 
 		buf_idx = lane_id;
 		while (buf_idx < rx_pkt_num) {
-			ret = doca_gpu_dev_eth_rxq_get_buf(rxq, rx_buf_idx + buf_idx, &buf_ptr);
-			if (ret != DOCA_SUCCESS) {
-				printf("Error %d doca_gpu_dev_eth_rxq_get_buf warp %d lane %d\n", ret, warp_id, lane_id);
-				DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-				break;
-			}
-
-			ret = doca_gpu_dev_buf_get_addr(buf_ptr, &buf_addr);
-			if (ret != DOCA_SUCCESS) {
-				printf("Error %d doca_gpu_dev_eth_rxq_get_buf warp %d lane %d\n", ret, warp_id, lane_id);
-				DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-				break;
-			}
+			doca_gpu_dev_eth_rxq_get_buf(rxq, rx_buf_idx + buf_idx, &buf_ptr);
+			doca_gpu_dev_buf_get_addr(buf_ptr, &buf_addr);
 
 			raw_to_icmp(buf_addr, &hdr, &payload);
 

@@ -216,27 +216,30 @@ static void ec_state_changed_callback(const union doca_data user_data,
  * @state [in]: The DOCA EC sample state
  * @pci_addr [in]: The PCI address of a doca device
  * @is_support_func [in]: Function that pci device should support
- * @max_bufs [in]: The buffer count to create
  * @src_size [in]: The source data size (to create the buffer)
  * @dst_size [in]: The destination data size (to create the buffer)
+ * @num_src_buf [in]: Number of doca_buf for source buffer
+ * @num_dst_buf [in]: Number of doca_buf for destination buffer
  * @max_block_size [out]: The maximum block size supported for ec operations
  * @return: DOCA_SUCCESS if the core init successfully and DOCA_ERROR otherwise.
  */
 static doca_error_t ec_core_init(struct ec_sample_objects *state,
 				 const char *pci_addr,
 				 tasks_check is_support_func,
-				 uint32_t max_bufs,
 				 uint32_t src_size,
 				 uint32_t dst_size,
+				 int num_src_buf,
+				 int num_dst_buf,
 				 uint64_t *max_block_size)
 {
 	doca_error_t result;
 	union doca_data ctx_user_data;
+	uint32_t max_buf_list_len = 0;
 
 	result = open_doca_device_with_pci(pci_addr, is_support_func, &state->core_state.dev);
 	ASSERT_DOCA_ERR(result, state, "Unable to open the pci device");
 
-	result = create_core_objects(&state->core_state, max_bufs);
+	result = create_core_objects(&state->core_state, (uint32_t)(num_src_buf + num_dst_buf));
 	ASSERT_DOCA_ERR(result, state, "Failed to init core");
 
 	result = doca_ec_create(state->core_state.dev, &state->ec);
@@ -244,6 +247,17 @@ static doca_error_t ec_core_init(struct ec_sample_objects *state,
 
 	result = doca_ec_cap_get_max_block_size(doca_dev_as_devinfo(state->core_state.dev), max_block_size);
 	ASSERT_DOCA_ERR(result, state, "Unable to query maximum block size supported");
+
+	result = doca_ec_cap_get_max_buf_list_len(doca_dev_as_devinfo(state->core_state.dev), &max_buf_list_len);
+	ASSERT_DOCA_ERR(result, state, "Unable to query mmax_buf_list_len supported");
+	if ((uint32_t)(num_src_buf + num_dst_buf) > max_buf_list_len) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Number of doca_buf [%d] exceed the limitation [%u]: %s",
+			     num_src_buf + num_dst_buf,
+			     max_buf_list_len,
+			     doca_error_get_descr(result));
+		return result;
+	}
 
 	state->core_state.ctx = doca_ec_as_ctx(state->ec);
 	SAMPLE_ASSERT(state->core_state.ctx != NULL, DOCA_ERROR_UNEXPECTED, state, "Unable to retrieve ctx");
@@ -264,24 +278,24 @@ static doca_error_t ec_core_init(struct ec_sample_objects *state,
 	ASSERT_DOCA_ERR(result, state, "Failed to start mmap src");
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->core_state.buf_inv,
-						    state->core_state.src_mmap,
-						    state->src_buffer,
-						    src_size,
-						    &state->src_doca_buf);
+	result = allocat_doca_buf_list(state->core_state.buf_inv,
+				       state->core_state.src_mmap,
+				       state->src_buffer,
+				       src_size,
+				       num_src_buf,
+				       true,
+				       &state->src_doca_buf);
 	ASSERT_DOCA_ERR(result, state, "Unable to acquire DOCA buffer representing source buffer");
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->core_state.buf_inv,
-						    state->core_state.dst_mmap,
-						    state->dst_buffer,
-						    dst_size,
-						    &state->dst_doca_buf);
+	result = allocat_doca_buf_list(state->core_state.buf_inv,
+				       state->core_state.dst_mmap,
+				       state->dst_buffer,
+				       dst_size,
+				       num_dst_buf,
+				       false,
+				       &state->dst_doca_buf);
 	ASSERT_DOCA_ERR(result, state, "Unable to acquire DOCA buffer representing destination buffer");
-
-	/* Setting data length in doca buffer */
-	result = doca_buf_set_data(state->src_doca_buf, state->src_buffer, src_size);
-	ASSERT_DOCA_ERR(result, state, "Unable to set DOCA buffer data");
 
 	/* Include state in user data of context to be used in callbacks */
 	ctx_user_data.ptr = state;
@@ -418,6 +432,8 @@ free_task:
  * @output_dir_path [in]: path to the task output file
  * @data_block_count [in]: data block count
  * @rdnc_block_count [in]: redundancy block count
+ * @num_src_buf [in]: Number of doca_buf for source buffer
+ * @num_dst_buf [in]: Number of doca_buf for destination buffer
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise.
  */
 doca_error_t ec_encode(const char *pci_addr,
@@ -425,9 +441,10 @@ doca_error_t ec_encode(const char *pci_addr,
 		       enum doca_ec_matrix_type matrix_type,
 		       const char *output_dir_path,
 		       uint32_t data_block_count,
-		       uint32_t rdnc_block_count)
+		       uint32_t rdnc_block_count,
+		       int num_src_buf,
+		       int num_dst_buf)
 {
-	uint32_t max_bufs = 2;
 	doca_error_t result;
 	int ret;
 	size_t i;
@@ -505,9 +522,10 @@ doca_error_t ec_encode(const char *pci_addr,
 	result = ec_core_init(state,
 			      pci_addr,
 			      (tasks_check)&doca_ec_cap_task_create_is_supported,
-			      max_bufs,
 			      src_size,
 			      dst_size,
+			      num_src_buf,
+			      num_dst_buf,
 			      &max_block_size);
 	if (result != DOCA_SUCCESS)
 		return result;
@@ -715,6 +733,8 @@ free_task:
  * @dir_path [in]: path to the tasks output file
  * @data_block_count [in]: data block count
  * @rdnc_block_count [in]: redundancy block count
+ * @num_src_buf [in]: Number of doca_buf for source buffer
+ * @num_dst_buf [in]: Number of doca_buf for destination buffer
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise.
  */
 doca_error_t ec_decode(const char *pci_addr,
@@ -722,9 +742,10 @@ doca_error_t ec_decode(const char *pci_addr,
 		       const char *user_output_file_path,
 		       const char *dir_path,
 		       uint32_t data_block_count,
-		       uint32_t rdnc_block_count)
+		       uint32_t rdnc_block_count,
+		       int num_src_buf,
+		       int num_dst_buf)
 {
-	uint32_t max_bufs = 2;
 	doca_error_t result;
 	int ret;
 	size_t i;
@@ -858,9 +879,10 @@ doca_error_t ec_decode(const char *pci_addr,
 	result = ec_core_init(state,
 			      pci_addr,
 			      (tasks_check)&doca_ec_cap_task_recover_is_supported,
-			      max_bufs,
 			      src_size,
 			      dst_size,
+			      num_src_buf,
+			      num_dst_buf,
 			      &max_block_size);
 	if (result != DOCA_SUCCESS)
 		return result;
@@ -992,6 +1014,8 @@ doca_error_t ec_delete_data(const char *output_path, uint32_t *missing_indices, 
  * @rdnc_block_count [in]: redundancy block count
  * @missing_indices [in]: data indices to delete
  * @n_missing [in]: indices count
+ * @num_src_buf [in]: Number of doca_buf for source buffer
+ * @num_dst_buf [in]: Number of doca_buf for destination buffer
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise.
  */
 doca_error_t ec_recover(const char *pci_addr,
@@ -1002,7 +1026,9 @@ doca_error_t ec_recover(const char *pci_addr,
 			uint32_t data_block_count,
 			uint32_t rdnc_block_count,
 			uint32_t *missing_indices,
-			size_t n_missing)
+			size_t n_missing,
+			int num_src_buf,
+			int num_dst_buf)
 {
 	doca_error_t result = DOCA_SUCCESS;
 	struct stat path_stat;
@@ -1021,7 +1047,14 @@ doca_error_t ec_recover(const char *pci_addr,
 	}
 
 	if (do_both || input_path_is_file)
-		result = ec_encode(pci_addr, input_path, matrix_type, output_path, data_block_count, rdnc_block_count);
+		result = ec_encode(pci_addr,
+				   input_path,
+				   matrix_type,
+				   output_path,
+				   data_block_count,
+				   rdnc_block_count,
+				   num_src_buf,
+				   num_dst_buf);
 	if (result != DOCA_SUCCESS)
 		return result;
 	if (do_both)
@@ -1029,7 +1062,13 @@ doca_error_t ec_recover(const char *pci_addr,
 	if (result != DOCA_SUCCESS)
 		return result;
 	if (do_both || !input_path_is_file)
-		result =
-			ec_decode(pci_addr, matrix_type, output_file_path, dir_path, data_block_count, rdnc_block_count);
+		result = ec_decode(pci_addr,
+				   matrix_type,
+				   output_file_path,
+				   dir_path,
+				   data_block_count,
+				   rdnc_block_count,
+				   num_src_buf,
+				   num_dst_buf);
 	return result;
 }

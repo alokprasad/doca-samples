@@ -86,7 +86,7 @@ int main(int argc, char **argv)
 	init_config(&stream_config);
 
 	/* ARGP initialization */
-	result = doca_argp_init("doca_rmax_create_stream_hds", &stream_config);
+	result = doca_argp_init(NULL, &stream_config);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

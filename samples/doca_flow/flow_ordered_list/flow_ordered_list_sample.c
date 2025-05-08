@@ -30,6 +30,7 @@
 #include <doca_flow.h>
 
 #include "flow_common.h"
+#include "doca_bitfield.h"
 
 DOCA_LOG_REGISTER(FLOW_ORDERED_LIST);
 
@@ -118,8 +119,8 @@ doca_error_t add_root_pipe_entries(struct doca_flow_pipe *pipe,
 	doca_error_t result;
 	doca_be32_t dst_ip_addr = BE_IPV4_ADDR(8, 8, 8, 8);
 	doca_be32_t src_ip_addr = BE_IPV4_ADDR(1, 1, 1, 1);
-	doca_be16_t dst_port = rte_cpu_to_be_16(80);
-	doca_be16_t src_port = rte_cpu_to_be_16(1234);
+	doca_be16_t dst_port = DOCA_HTOBE16(80);
+	doca_be16_t src_port = DOCA_HTOBE16(1234);
 
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
@@ -160,43 +161,47 @@ doca_error_t create_ordered_list_pipe(struct doca_flow_port *port, int port_id, 
 {
 	struct doca_flow_fwd fwd;
 	const int nb_ordered_lists = 2;
-	struct doca_flow_monitor meter;
 	struct doca_flow_monitor counter;
 	struct doca_flow_actions actions;
+	struct doca_flow_actions actions_2;
 	struct doca_flow_actions actions_mask;
 	struct doca_flow_pipe_cfg *pipe_cfg;
 	struct doca_flow_ordered_list ordered_list_0;
 	struct doca_flow_ordered_list ordered_list_1;
+	struct doca_flow_ordered_list_element element_0;
+	struct doca_flow_ordered_list_element element_1;
+	struct doca_flow_ordered_list_element element_2;
 	struct doca_flow_ordered_list *ordered_lists[nb_ordered_lists];
 	doca_error_t result;
 
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&meter, 0, sizeof(meter));
 	memset(&counter, 0, sizeof(counter));
 	memset(&actions, 0, sizeof(actions));
 	memset(&actions_mask, 0, sizeof(actions_mask));
 	memset(&ordered_list_0, 0, sizeof(ordered_list_0));
 	memset(&ordered_list_1, 0, sizeof(ordered_list_1));
+	memset(&element_0, 0, sizeof(element_0));
+	memset(&element_1, 0, sizeof(element_1));
+	memset(&element_2, 0, sizeof(element_2));
 
 	ordered_lists[0] = &ordered_list_0;
 	ordered_lists[1] = &ordered_list_1;
 
+	element_0.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS;
+	element_0.actions = &actions;
+	element_0.actions_mask = &actions_mask;
+	element_1.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR;
+	element_1.monitor = &counter;
+	element_2.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS;
+	element_2.actions = &actions_2;
+
 	ordered_list_0.idx = 0;
-	ordered_list_0.size = 4;
-	ordered_list_0.types = (enum doca_flow_ordered_list_element_type[]){DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS_MASK,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR};
-	ordered_list_0.elements = (const void *[]){&actions, &actions_mask, &meter, &counter};
+	ordered_list_0.size = 2;
+	ordered_list_0.elements = (struct doca_flow_ordered_list_element[]){element_0, element_1};
 
 	ordered_list_1.idx = 1;
-	ordered_list_1.size = 2;
-	ordered_list_1.types = (enum doca_flow_ordered_list_element_type[]){DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR};
-	ordered_list_1.elements = (const void *[]){&counter, &meter};
-
-	/* monitor with non shared meter */
-	meter.meter_type = DOCA_FLOW_RESOURCE_TYPE_NON_SHARED;
+	ordered_list_1.size = 3;
+	ordered_list_1.elements = (struct doca_flow_ordered_list_element[]){element_2, element_0, element_1};
 
 	/* monitor with changeable shared counter ID */
 	counter.counter_type = DOCA_FLOW_RESOURCE_TYPE_SHARED;
@@ -207,6 +212,10 @@ doca_error_t create_ordered_list_pipe(struct doca_flow_port *port, int port_id, 
 	actions.outer.ip4.src_ip = BE_IPV4_ADDR(192, 168, 0, 0);
 	actions_mask.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
 	actions_mask.outer.ip4.src_ip = BE_IPV4_ADDR(255, 255, 0, 0);
+
+	actions_2.outer.l4_type_ext = DOCA_FLOW_L4_TYPE_EXT_TCP;
+	actions_2.outer.tcp.l4_port.src_port = DOCA_HTOBE16(555);
+	actions_2.outer.tcp.l4_port.dst_port = DOCA_HTOBE16(70);
 
 	result = doca_flow_pipe_cfg_create(&pipe_cfg, port);
 	if (result != DOCA_SUCCESS) {
@@ -248,29 +257,34 @@ doca_error_t add_ordered_list_pipe_entries(struct doca_flow_pipe *pipe, int port
 	struct doca_flow_pipe_entry *entry2;
 	struct doca_flow_ordered_list ordered_list_0;
 	struct doca_flow_ordered_list ordered_list_1;
+	struct doca_flow_ordered_list_element element_0;
+	struct doca_flow_ordered_list_element element_1;
+	struct doca_flow_ordered_list_element element_2;
 	struct doca_flow_monitor counter;
-	struct doca_flow_monitor meter;
 	struct doca_flow_actions actions;
 	struct doca_flow_actions actions_mask;
 	doca_error_t result;
 
 	memset(&counter, 0, sizeof(counter));
-	memset(&meter, 0, sizeof(meter));
 	memset(&actions, 0, sizeof(actions));
 	memset(&actions_mask, 0, sizeof(actions_mask));
+	memset(&element_0, 0, sizeof(element_0));
+	memset(&element_1, 0, sizeof(element_1));
+	memset(&element_2, 0, sizeof(element_2));
 	memset(&ordered_list_0, 0, sizeof(ordered_list_0));
 	memset(&ordered_list_1, 0, sizeof(ordered_list_1));
 
-	ordered_list_0.idx = 0;
-	ordered_list_0.size = 4;
-	ordered_list_0.types = (enum doca_flow_ordered_list_element_type[]){DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS_MASK,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR};
-	ordered_list_0.elements = (const void *[]){&actions, &actions_mask, &meter, &counter};
+	element_0.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS;
+	element_0.actions = &actions;
+	element_0.actions_mask = &actions_mask;
+	element_1.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR;
+	element_1.monitor = &counter;
+	element_2.type = DOCA_FLOW_ORDERED_LIST_ELEMENT_ACTIONS;
+	element_2.actions = &actions;
 
-	meter.non_shared_meter.cir = 1024;
-	meter.non_shared_meter.cbs = 1024;
+	ordered_list_0.idx = 0;
+	ordered_list_0.size = 2;
+	ordered_list_0.elements = (struct doca_flow_ordered_list_element[]){element_0, element_1};
 
 	/* first list with counter ID = port ID */
 	counter.shared_counter.shared_counter_id = port_id;
@@ -287,10 +301,8 @@ doca_error_t add_ordered_list_pipe_entries(struct doca_flow_pipe *pipe, int port
 		return result;
 
 	ordered_list_1.idx = 1;
-	ordered_list_1.size = 2;
-	ordered_list_1.types = (enum doca_flow_ordered_list_element_type[]){DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR,
-									    DOCA_FLOW_ORDERED_LIST_ELEMENT_MONITOR};
-	ordered_list_1.elements = (const void *[]){&counter, &meter};
+	ordered_list_1.size = 3;
+	ordered_list_1.elements = (struct doca_flow_ordered_list_element[]){element_2, element_0, element_1};
 
 	/* second list with counter ID = port ID + 2*/
 	counter.shared_counter.shared_counter_id = port_id + 2;
@@ -321,11 +333,12 @@ doca_error_t flow_ordered_list(int nb_queues)
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct doca_flow_port *ports[nb_ports];
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct doca_flow_pipe *root_pipe;
 	struct doca_flow_pipe *ordered_list_pipe;
 	uint32_t shared_counter_ids[] = {0, 1, 2, 3};
 	struct doca_flow_resource_query query_results_array[4];
-	struct doca_flow_shared_resource_cfg cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT};
+	struct doca_flow_shared_resource_cfg cfg = {0};
 	int port_id;
 	struct entries_status status;
 	int num_of_entries = 4;
@@ -333,7 +346,6 @@ doca_error_t flow_ordered_list(int nb_queues)
 
 	nr_shared_resources[DOCA_FLOW_SHARED_RESOURCE_COUNTER] = 4;
 	resource.nr_counters = 2;
-	resource.nr_meters = 2;
 
 	result = init_doca_flow(nb_queues, "vnf,hws", &resource, nr_shared_resources);
 	if (result != DOCA_SUCCESS) {
@@ -342,7 +354,8 @@ doca_error_t flow_ordered_list(int nb_queues)
 	}
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
-	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, num_of_entries));
+	result = init_doca_flow_ports(nb_ports, ports, true, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();

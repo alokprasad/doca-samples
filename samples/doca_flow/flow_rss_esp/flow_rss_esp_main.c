@@ -31,8 +31,10 @@
 
 DOCA_LOG_REGISTER(FLOW_RSS_ESP::MAIN);
 
+#define NB_RSS_QUEUES (1 << 3)
+
 /* Sample's Logic */
-doca_error_t flow_rss_esp(int nb_queues);
+doca_error_t flow_rss_esp(int nb_steering_queues, int nb_rss_queues);
 
 /*
  * Sample main function
@@ -68,7 +70,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the sample");
 
-	result = doca_argp_init("doca_flow_rss_esp", NULL);
+	result = doca_argp_init(NULL, NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;
@@ -86,9 +88,11 @@ int main(int argc, char **argv)
 		DOCA_LOG_ERR("Failed to update ports and queues: %s", doca_error_get_descr(result));
 		goto dpdk_cleanup;
 	}
+	/* Verify we have enough queues to support the RSS configuration */
+	assert(dpdk_config.port_config.nb_queues >= NB_RSS_QUEUES);
 
 	/* run sample */
-	result = flow_rss_esp(dpdk_config.port_config.nb_queues);
+	result = flow_rss_esp(dpdk_config.port_config.nb_queues, NB_RSS_QUEUES);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("flow_rss_esp() encountered an error: %s", doca_error_get_descr(result));
 		goto dpdk_ports_queues_cleanup;

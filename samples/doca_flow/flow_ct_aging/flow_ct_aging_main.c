@@ -54,8 +54,8 @@ int main(int argc, char **argv)
 	struct doca_dev *ct_dev = NULL;
 	struct ct_config ct_cfg = {0};
 	struct application_dpdk_config dpdk_config = {
-		.port_config.nb_ports = 2,
-		.port_config.nb_queues = 2,
+		.port_config.nb_ports = 1,
+		.port_config.nb_queues = 1,
 		.port_config.isolated_mode = 1,
 		.port_config.switch_mode = 1,
 		.reserve_main_thread = false,
@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting the sample");
 
-	result = doca_argp_init("doca_flow_ct_aging", &ct_cfg);
+	result = doca_argp_init(NULL, &ct_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

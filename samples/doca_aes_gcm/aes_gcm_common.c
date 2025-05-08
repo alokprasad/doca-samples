@@ -58,6 +58,8 @@ void init_aes_gcm_params(struct aes_gcm_cfg *aes_gcm_cfg)
 	aes_gcm_cfg->iv_length = MAX_AES_GCM_IV_LENGTH;
 	aes_gcm_cfg->tag_size = AES_GCM_AUTH_TAG_96_SIZE_IN_BYTES;
 	aes_gcm_cfg->aad_size = 0;
+	aes_gcm_cfg->num_dst_buf = 1;
+	aes_gcm_cfg->num_src_buf = 1;
 }
 
 /*
@@ -75,11 +77,11 @@ static doca_error_t parse_hex_to_bytes(const char *hex_str, size_t hex_str_size,
 
 	/* Parse every digit (nibble) and translate it to the matching numeric value */
 	for (i = 0; i < hex_str_size; i++) {
-		/* Must be lower-case alpha-numeric */
+		/* Must be alpha-numeric */
 		if ('0' <= hex_str[i] && hex_str[i] <= '9')
 			digit = hex_str[i] - '0';
 		else if ('a' <= tolower(hex_str[i]) && tolower(hex_str[i]) <= 'f')
-			digit = hex_str[i] - 'a' + 10;
+			digit = tolower(hex_str[i]) - 'a' + 10;
 		else {
 			DOCA_LOG_ERR("Wrong format for input (%s) - need to be in hex format (1-9) or (a-f) values",
 				     hex_str);
@@ -256,6 +258,50 @@ static doca_error_t aad_callback(void *param, void *config)
 }
 
 /*
+ * ARGP Callback - Handle number of source doca_buf parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t num_src_buf_callback(void *param, void *config)
+{
+	struct aes_gcm_cfg *conf = (struct aes_gcm_cfg *)config;
+	const int *num = (int *)param;
+
+	if (*num <= 0) {
+		DOCA_LOG_ERR("Entered number of source doca_buf: %d, valid value must be >= 1", *num);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	conf->num_src_buf = *num;
+
+	return DOCA_SUCCESS;
+}
+
+/*
+ * ARGP Callback - Handle number of destination doca_buf parameter
+ *
+ * @param [in]: Input parameter
+ * @config [in/out]: Program configuration context
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
+ */
+static doca_error_t num_dst_buf_callback(void *param, void *config)
+{
+	struct aes_gcm_cfg *conf = (struct aes_gcm_cfg *)config;
+	const int *num = (int *)param;
+
+	if (*num <= 0) {
+		DOCA_LOG_ERR("Entered number of destination doca_buf: %d, valid value must be >= 1", *num);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+
+	conf->num_dst_buf = *num;
+
+	return DOCA_SUCCESS;
+}
+
+/*
  * Register the command line parameters for the sample.
  *
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
@@ -265,6 +311,7 @@ doca_error_t register_aes_gcm_params(void)
 	doca_error_t result;
 	struct doca_argp_param *pci_param, *file_param, *output_param, *raw_key_param, *iv_param, *tag_size_param,
 		*aad_size_param;
+	struct doca_argp_param *num_src_buf_param, *num_dst_buf_param;
 
 	result = doca_argp_param_create(&pci_param);
 	if (result != DOCA_SUCCESS) {
@@ -385,6 +432,40 @@ doca_error_t register_aes_gcm_params(void)
 		return result;
 	}
 
+	/* Create and register number of source doca_buf param */
+	result = doca_argp_param_create(&num_src_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(num_src_buf_param, "ns");
+	doca_argp_param_set_long_name(num_src_buf_param, "num-src-buf");
+	doca_argp_param_set_description(num_src_buf_param, "number of doca_buf for source buffer");
+	doca_argp_param_set_callback(num_src_buf_param, num_src_buf_callback);
+	doca_argp_param_set_type(num_src_buf_param, DOCA_ARGP_TYPE_INT);
+	result = doca_argp_register_param(num_src_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	/* Create and register number of destination doca_buf param */
+	result = doca_argp_param_create(&num_dst_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(num_dst_buf_param, "nd");
+	doca_argp_param_set_long_name(num_dst_buf_param, "num-dst-buf");
+	doca_argp_param_set_description(num_dst_buf_param, "number of doca_buf for destination buffer");
+	doca_argp_param_set_callback(num_dst_buf_param, num_dst_buf_callback);
+	doca_argp_param_set_type(num_dst_buf_param, DOCA_ARGP_TYPE_INT);
+	result = doca_argp_register_param(num_dst_buf_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
 	return DOCA_SUCCESS;
 }
 
@@ -441,6 +522,7 @@ doca_error_t allocate_aes_gcm_resources(const char *pci_addr, uint32_t max_bufs,
 	struct program_core_objects *state = NULL;
 	union doca_data ctx_user_data = {0};
 	doca_error_t result, tmp_result;
+	uint32_t max_buf_list_len = 0;
 
 	resources->state = malloc(sizeof(*resources->state));
 	if (resources->state == NULL) {
@@ -470,6 +552,26 @@ doca_error_t allocate_aes_gcm_resources(const char *pci_addr, uint32_t max_bufs,
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to open DOCA device for DOCA AES-GCM: %s", doca_error_get_descr(result));
 		goto free_state;
+	}
+
+	if (resources->mode == AES_GCM_MODE_ENCRYPT) {
+		result = doca_aes_gcm_cap_task_encrypt_get_max_list_buf_num_elem(doca_dev_as_devinfo(state->dev),
+										 &max_buf_list_len);
+	} else {
+		result = doca_aes_gcm_cap_task_decrypt_get_max_list_buf_num_elem(doca_dev_as_devinfo(state->dev),
+										 &max_buf_list_len);
+	}
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to get task max_buf_list_len capability: %s", doca_error_get_descr(result));
+		return result;
+	}
+	if (max_bufs > max_buf_list_len) {
+		result = DOCA_ERROR_INVALID_VALUE;
+		DOCA_LOG_ERR("Number of doca_buf [%d] exceed the limitation [%u]: %s",
+			     max_bufs,
+			     max_buf_list_len,
+			     doca_error_get_descr(result));
+		return result;
 	}
 
 	result = doca_aes_gcm_create(state->dev, &resources->aes_gcm);

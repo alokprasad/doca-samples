@@ -231,11 +231,21 @@ static int simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *pinfo, struct simp
 	key->port_2 = simple_fwd_ft_key_get_dst_port(inner, pinfo);
 	key->port_id = pinfo->orig_port_id;
 
-	/* in case of tunnel , use tun type and vni */
-	if (pinfo->tun_type != DOCA_FLOW_TUN_NONE) {
-		key->tun_type = pinfo->tun_type;
+	key->tun_type = pinfo->tun_type;
+	switch (pinfo->tun_type) {
+	case DOCA_FLOW_TUN_VXLAN:
 		key->vni = pinfo->tun.vni;
+		break;
+	case DOCA_FLOW_TUN_GTPU:
+		key->teid = pinfo->tun.teid;
+		break;
+	case DOCA_FLOW_TUN_GRE:
+		key->gre_key = pinfo->tun.gre_key;
+		break;
+	default:
+		break;
 	}
+
 	return 0;
 }
 
@@ -248,13 +258,7 @@ static int simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *pinfo, struct simp
  */
 static bool simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1, struct simple_fwd_ft_key *key2)
 {
-	uint64_t *keyp1 = (uint64_t *)key1;
-	uint64_t *keyp2 = (uint64_t *)key2;
-	uint64_t res = keyp1[0] ^ keyp2[0];
-
-	res |= keyp1[1] ^ keyp2[1];
-	res |= keyp1[2] ^ keyp2[2];
-	return (res == 0);
+	return (memcmp(key1, key2, sizeof(struct simple_fwd_ft_key)) == 0);
 }
 
 struct simple_fwd_ft *simple_fwd_ft_create(int nb_flows,

@@ -56,6 +56,7 @@ struct eth_rxq_sample_objects {
 	struct doca_eth_rxq_task_recv *recv_task;     /* Receive task */
 	uint32_t inflight_tasks;		      /* Inflight tasks count */
 	uint16_t rxq_flow_queue_id;		      /* DOCA ETH RXQ's flow queue ID */
+	bool timestamp_enable;			      /* timestamp enable */
 };
 
 /*
@@ -70,13 +71,15 @@ static void task_recv_common_cb(struct doca_eth_rxq_task_recv *task_recv,
 				union doca_data ctx_user_data)
 {
 	doca_error_t status, task_status;
+	struct eth_rxq_sample_objects *state;
 	struct doca_buf *pkt;
 	size_t packet_size;
-	uint32_t *inflight_tasks, flow_tag, rx_hash;
+	uint32_t flow_tag, rx_hash;
 	const uint32_t *metadata_array;
+	uint64_t timestamp;
 
-	inflight_tasks = ctx_user_data.ptr;
-	(*inflight_tasks)--;
+	state = ctx_user_data.ptr;
+	state->inflight_tasks--;
 	DOCA_LOG_INFO("Receive task user data is 0x%lx", task_user_data.u64);
 
 	status = doca_eth_rxq_task_recv_get_pkt(task_recv, &pkt);
@@ -108,6 +111,14 @@ static void task_recv_common_cb(struct doca_eth_rxq_task_recv *task_recv,
 			DOCA_LOG_ERR("Failed to get rx_hash, err: %s", doca_error_get_name(status));
 		else
 			DOCA_LOG_INFO("Received a packet with rx_hash %u", rx_hash);
+
+		if (state->timestamp_enable) {
+			status = doca_eth_rxq_task_recv_get_timestamp(task_recv, &timestamp);
+			if (status != DOCA_SUCCESS)
+				DOCA_LOG_ERR("Failed to get timestamp, err: %s", doca_error_get_name(status));
+			else
+				DOCA_LOG_INFO("Received a packet with timestamp %lu", timestamp);
+		}
 
 		status = doca_buf_get_data_len(pkt, &packet_size);
 		if (status != DOCA_SUCCESS)
@@ -265,6 +276,12 @@ static doca_error_t create_eth_rxq_ctx(struct eth_rxq_sample_objects *state)
 		goto destroy_eth_rxq;
 	}
 
+	status = doca_eth_rxq_set_timestamp(state->eth_rxq, state->timestamp_enable);
+	if (status != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set enable timestamp, err: %s", doca_error_get_name(status));
+		goto destroy_eth_rxq;
+	}
+
 	state->core_resources.core_objs.ctx = doca_eth_rxq_as_doca_ctx(state->eth_rxq);
 	if (state->core_resources.core_objs.ctx == NULL) {
 		DOCA_LOG_ERR("Failed to retrieve DOCA ETH RXQ context as DOCA context, err: %s",
@@ -278,7 +295,7 @@ static doca_error_t create_eth_rxq_ctx(struct eth_rxq_sample_objects *state)
 		goto destroy_eth_rxq;
 	}
 
-	user_data.ptr = &(state->inflight_tasks);
+	user_data.ptr = state;
 	status = doca_ctx_set_user_data(state->core_resources.core_objs.ctx, user_data);
 	if (status != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set user data for DOCA context, err: %s", doca_error_get_name(status));
@@ -392,22 +409,20 @@ static void eth_rxq_cleanup(struct eth_rxq_sample_objects *state)
 	if (state->flow_resources.root_pipe != NULL)
 		doca_flow_pipe_destroy(state->flow_resources.root_pipe);
 
-	if (state->eth_rxq != NULL) {
-		status = destroy_eth_rxq_ctx(state);
-		if (status != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to destroy eth_rxq_ctx, err: %s", doca_error_get_name(status));
-			return;
-		}
-	}
-
 	if (state->flow_resources.df_port != NULL) {
 		status = doca_flow_port_stop(state->flow_resources.df_port);
 		if (status != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to stop DOCA flow port, err: %s", doca_error_get_name(status));
 			return;
 		}
+	}
 
-		doca_flow_destroy();
+	if (state->eth_rxq != NULL) {
+		status = destroy_eth_rxq_ctx(state);
+		if (status != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to destroy eth_rxq_ctx, err: %s", doca_error_get_name(status));
+			return;
+		}
 	}
 
 	if (state->core_resources.core_objs.dev != NULL) {
@@ -417,6 +432,9 @@ static void eth_rxq_cleanup(struct eth_rxq_sample_objects *state)
 			return;
 		}
 	}
+
+	if (state->flow_resources.df_port != NULL)
+		doca_flow_destroy();
 }
 
 /*
@@ -463,19 +481,18 @@ static doca_error_t check_device(struct doca_devinfo *devinfo)
  * Run ETH RXQ regular mode receive
  *
  * @ib_dev_name [in]: IB device name of a doca device
+ * @timestamp_enable [in]: timestamp enable
  * @return: DOCA_SUCCESS on success, DOCA_ERROR otherwise
  */
-doca_error_t eth_rxq_regular_receive(const char *ib_dev_name)
+doca_error_t eth_rxq_regular_receive(const char *ib_dev_name, bool timestamp_enable)
 {
 	doca_error_t status, clean_status;
-	struct eth_rxq_sample_objects state;
+	struct eth_rxq_sample_objects state = {.timestamp_enable = timestamp_enable};
 	struct eth_core_config cfg = {.mmap_size = MAX_PKT_SIZE * BUFS_NUM,
 				      .inventory_num_elements = BUFS_NUM,
 				      .check_device = check_device,
 				      .ibdev_name = ib_dev_name};
 	struct eth_rxq_flow_config flow_cfg = {};
-
-	memset(&state, 0, sizeof(state));
 
 	status = allocate_eth_core_resources(&cfg, &(state.core_resources));
 	if (status != DOCA_SUCCESS) {

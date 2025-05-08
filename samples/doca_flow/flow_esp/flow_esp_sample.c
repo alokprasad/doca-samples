@@ -31,6 +31,8 @@
 #include <doca_flow.h>
 
 #include "doca_error.h"
+#include "doca_bitfield.h"
+
 #include "flow_common.h"
 
 DOCA_LOG_REGISTER(FLOW_ESP);
@@ -61,7 +63,7 @@ static doca_error_t create_root_pipe(struct doca_flow_port *port, struct doca_fl
 	match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
 	match.tun.type = DOCA_FLOW_TUN_ESP;
 	match.tun.esp_spi = 0xffffffff;
-	match.tun.esp_sn = rte_cpu_to_be_32(sequence_number);
+	match.tun.esp_sn = DOCA_HTOBE32(sequence_number);
 
 	result = doca_flow_pipe_cfg_create(&pipe_cfg, port);
 	if (result != DOCA_SUCCESS) {
@@ -115,7 +117,7 @@ static doca_error_t add_root_pipe_entry(struct doca_flow_pipe *pipe,
 	memset(&match, 0, sizeof(match));
 	memset(&fwd, 0, sizeof(fwd));
 
-	match.tun.esp_spi = rte_cpu_to_be_32(spi);
+	match.tun.esp_spi = DOCA_HTOBE32(spi);
 
 	fwd.type = DOCA_FLOW_FWD_PIPE;
 	fwd.next_pipe = next_pipe;
@@ -223,7 +225,7 @@ static doca_error_t add_comparison_pipe_entry(struct doca_flow_pipe *pipe,
 	 * The immediate value to compare with ESP sequence number field is provided in the match structure.
 	 * The value is hard-coded 3 (arbitrary).
 	 */
-	match.tun.esp_sn = 3;
+	match.tun.esp_sn = DOCA_HTOBE32(3);
 
 	fwd.type = DOCA_FLOW_FWD_PORT;
 	fwd.port_id = port_id ^ 1;

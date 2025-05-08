@@ -35,7 +35,7 @@
 #include "flow_ct_common.h"
 #include "flow_common.h"
 
-#define PACKET_BURST 128
+#define N_BURST 32
 
 DOCA_LOG_REGISTER(FLOW_CT_AGING);
 
@@ -63,26 +63,28 @@ static doca_error_t handle_aged_flow(struct doca_flow_port *port,
 	int num_of_aged_entries;
 	doca_error_t result;
 
-	num_of_aged_entries = doca_flow_aging_handle(port, ct_queue, 0, 0);
-	while (num_of_aged_entries > 0) {
-		*total_counter += num_of_aged_entries;
-		DOCA_LOG_INFO("Num of aged CT entries: %d, total: %d", num_of_aged_entries, *total_counter);
-
-		result = doca_flow_ct_entries_process(port, ct_queue, 0, 0, NULL);
+	do {
+		result = flow_ct_queue_reserve(port, ct_queue, status, N_BURST * 2); /* 2 rules per connection */
 		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to process CT entries: %s", doca_error_get_descr(result));
+			DOCA_LOG_ERR("Failed to process entries: %s", doca_error_get_descr(result));
 			return result;
 		}
-		if (status->failure) {
-			DOCA_LOG_ERR("Failed to process CT entries, status is not success");
+
+		num_of_aged_entries = doca_flow_aging_handle(port, ct_queue, DEFAULT_TIMEOUT_US, N_BURST);
+		if (num_of_aged_entries == -1 && status->nb_processed > 0) {
+			flow_ct_queue_reserve(port, ct_queue, status, 0); /* wait all pending removal done */
+			DOCA_LOG_INFO("Port aging done: %d", *total_counter);
+			return DOCA_SUCCESS;
+		} else if (num_of_aged_entries < -1) {
+			DOCA_LOG_ERR("Error in aging handle: %d", num_of_aged_entries);
 			return DOCA_ERROR_BAD_STATE;
+		} else if (num_of_aged_entries > 0) {
+			*total_counter += num_of_aged_entries;
+			DOCA_LOG_INFO("Num of aged connections: %d, total: %d", num_of_aged_entries, *total_counter);
 		}
+	} while (num_of_aged_entries > 0);
 
-		status->nb_processed = 0;
-		num_of_aged_entries = doca_flow_aging_handle(port, 0, 0, 0);
-	}
-
-	return DOCA_SUCCESS;
+	return result;
 }
 
 /*
@@ -100,21 +102,30 @@ static void check_for_valid_entry_aging(struct doca_flow_pipe_entry *entry,
 					enum doca_flow_entry_op op,
 					void *user_ctx)
 {
-	(void)entry;
-	(void)op;
-	(void)pipe_queue;
 	struct aging_user_data *user_data = (struct aging_user_data *)user_ctx;
+	doca_error_t result;
 
 	if (user_data == NULL)
 		return;
 
 	if (status != DOCA_FLOW_ENTRY_STATUS_SUCCESS)
 		user_data->status->failure = true; /* set failure to true if processing failed */
+
 	if (op == DOCA_FLOW_ENTRY_OP_AGED) {
-		doca_flow_ct_rm_entry(pipe_queue, NULL, DOCA_FLOW_NO_WAIT, entry);
-		DOCA_LOG_INFO("CT Entry number %d aged out and removed", user_data->entry_num);
-	} else
+		/* Callback inside doca_flow_aging_handle(), queue room reserved */
+		result = doca_flow_ct_rm_entry(pipe_queue, NULL, DOCA_FLOW_CT_ENTRY_FLAGS_NO_WAIT, entry);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to remove entry %d: %s",
+				     user_data->entry_num,
+				     doca_error_get_descr(result));
+			return;
+		} else
+			DOCA_LOG_INFO("CT Entry number %d aged out and removed", user_data->entry_num);
+	} else {
+		DOCA_LOG_INFO("CT Entry number %d processed", user_data->entry_num);
+		/* Callback inside doca_flow_entries_process() */
 		user_data->status->nb_processed++;
+	}
 }
 
 /*
@@ -226,7 +237,7 @@ static doca_error_t create_count_pipe(struct doca_flow_port *port, struct doca_f
 	}
 
 	fwd.type = DOCA_FLOW_FWD_PORT;
-	fwd.port_id = 1;
+	fwd.port_id = 0;
 
 	result = doca_flow_pipe_create(pipe_cfg, &fwd, NULL, pipe);
 	if (result != DOCA_SUCCESS) {
@@ -277,10 +288,11 @@ static doca_error_t add_age_ct_entries(struct doca_flow_port *port,
 	struct doca_flow_ct_match match_o;
 	struct doca_flow_ct_match match_r;
 	struct doca_flow_pipe_entry *entry;
-	doca_be32_t src_ip_addr;
-	uint32_t aging_sec, flags = DOCA_FLOW_CT_ENTRY_FLAGS_NO_WAIT | DOCA_FLOW_CT_ENTRY_FLAGS_DIR_ORIGIN;
+	uint32_t aging_sec, flags;
 	int i;
 	doca_error_t result;
+
+	memset(status, 0, sizeof(struct entries_status));
 
 	for (i = 0; i < nb_aging_entries; i++) {
 		user_data[i] = (struct aging_user_data *)malloc(sizeof(struct aging_user_data));
@@ -294,10 +306,8 @@ static doca_error_t add_age_ct_entries(struct doca_flow_port *port,
 		memset(&match_o, 0, sizeof(match_o));
 		memset(&match_r, 0, sizeof(match_r));
 
-		src_ip_addr = BE_IPV4_ADDR(i, 2, 3, 4);
-
-		match_o.ipv4.src_ip = src_ip_addr;
-		match_o.ipv4.dst_ip = BE_IPV4_ADDR(8, 8, 8, 8);
+		match_o.ipv4.src_ip = BE_IPV4_ADDR(1, 2, 3, 4);
+		match_o.ipv4.dst_ip = BE_IPV4_ADDR(8, 8, 8, 8) + i;
 		match_r.ipv4.src_ip = match_o.ipv4.dst_ip;
 		match_r.ipv4.dst_ip = match_o.ipv4.src_ip;
 
@@ -312,6 +322,13 @@ static doca_error_t add_age_ct_entries(struct doca_flow_port *port,
 		user_data[i]->entry_num = i;
 		user_data[i]->port_id = 0;
 		user_data[i]->status = status;
+
+		flags = DOCA_FLOW_CT_ENTRY_FLAGS_DIR_REPLY | DOCA_FLOW_CT_ENTRY_FLAGS_DIR_ORIGIN;
+		if (i == nb_aging_entries - 1 || ((i + 1) % N_BURST) == 0) {
+			flow_ct_queue_reserve(port, ct_queue, status, N_BURST * 2); /* 2 rules per connection */
+			/* send the last entry with DOCA_FLOW_NO_WAIT flag for pushing all the entries */
+			flags |= DOCA_FLOW_CT_ENTRY_FLAGS_NO_WAIT;
+		}
 
 		/* Allocate CT entry */
 		result = doca_flow_ct_entry_prepare(ct_queue,
@@ -345,17 +362,7 @@ static doca_error_t add_age_ct_entries(struct doca_flow_port *port,
 		}
 	}
 
-	do {
-		result = doca_flow_ct_entries_process(port, ct_queue, 0, 0, NULL);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to process CT aged entries: %s", doca_error_get_descr(result));
-			return result;
-		}
-		if (status->failure) {
-			DOCA_LOG_ERR("Failed to process entries, status is not success");
-			return DOCA_ERROR_BAD_STATE;
-		}
-	} while (status->nb_processed < nb_aging_entries);
+	flow_ct_queue_reserve(port, ct_queue, status, 0);
 
 	return DOCA_SUCCESS;
 }
@@ -369,7 +376,7 @@ static doca_error_t add_age_ct_entries(struct doca_flow_port *port,
  */
 doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 {
-	const int nb_ports = 2, nb_aged_entries = 32;
+	const int nb_ports = 1, nb_aged_entries = 600;
 	int entry_idx, aged_entry_counter = 0;
 	struct flow_resources resource;
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
@@ -378,8 +385,9 @@ doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 	struct doca_flow_meta o_zone_mask, o_modify_mask, r_zone_mask, r_modify_mask;
 	struct aging_user_data *user_data[nb_aged_entries];
 	struct doca_dev *dev_arr[nb_ports];
+	uint32_t actions_mem_size[nb_ports];
 	struct entries_status ct_status;
-	uint32_t ct_flags = 0, nb_arm_queues = 1, nb_ctrl_queues = 1, nb_user_actions = 0, nb_ipv4_sessions = 1024,
+	uint32_t ct_flags = 0, nb_arm_queues = 1, nb_ctrl_queues = 1, nb_user_actions = 0,
 		 nb_ipv6_sessions = 0; /* On BF2 should always be 0 */
 	uint16_t ct_queue = nb_queues;
 	doca_error_t result;
@@ -395,6 +403,7 @@ doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 				   &resource,
 				   nr_shared_resources,
 				   check_for_valid_entry_aging,
+				   NULL,
 				   NULL);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA Flow: %s", doca_error_get_descr(result));
@@ -412,7 +421,7 @@ doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 				   nb_ctrl_queues,
 				   nb_user_actions,
 				   NULL,
-				   nb_ipv4_sessions,
+				   nb_aged_entries,
 				   nb_ipv6_sessions,
 				   0,
 				   false,
@@ -428,7 +437,8 @@ doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 
 	memset(dev_arr, 0, sizeof(struct doca_dev *) * nb_ports);
 	dev_arr[0] = ct_dev;
-	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr);
+	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(nb_queues, nb_aged_entries));
+	result = init_doca_flow_ports(nb_ports, ports, false, dev_arr, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_ct_destroy();
@@ -452,14 +462,12 @@ doca_error_t flow_ct_aging(uint16_t nb_queues, struct doca_dev *ct_dev)
 	if (result != DOCA_SUCCESS)
 		goto entries_cleanup;
 
+	flow_ct_queue_reserve(ports[0], ct_queue, &ct_status, 0);
+
 	/* handle aging in loop until all entries aged out */
+	memset(&ct_status, 0, sizeof(ct_status));
 	while (aged_entry_counter < nb_aged_entries) {
-		result = doca_flow_entries_process(ports[0], ct_queue, DEFAULT_TIMEOUT_US, 0);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to process CT entries: %s", doca_error_get_descr(result));
-			break;
-		}
-		sleep(0);
+		sleep(1);
 		result = handle_aged_flow(ports[0], ct_queue, &ct_status, &aged_entry_counter);
 		if (result != DOCA_SUCCESS)
 			break;

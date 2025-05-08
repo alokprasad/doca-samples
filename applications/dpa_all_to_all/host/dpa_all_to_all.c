@@ -244,7 +244,7 @@ static doca_error_t prepare_argp_parameters(int argc, char **argv, struct a2a_co
 	doca_error_t result;
 
 	/* Initialize arg parser for the All to All application */
-	result = doca_argp_init("doca_dpa_all_to_all", cfg);
+	result = doca_argp_init(NULL, cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return result;

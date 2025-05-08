@@ -29,7 +29,8 @@ ports_description:
   port_0: doca_dev
   port_1: doca_rep_dev
   port_2: doca_rep_dev
-description: "This sample shows how to use the DOCA Flow entropy calculation"
+description: "This sample shows how to use the DOCA Flow entropy calculation.
+              Sample Command Line: ./build/doca_flow_entropy   -- -l 60 -p 03:00.0 -r sf[0-1]"
 use_cases:
   - name: "Flow entropy use case #1"
     args: ""

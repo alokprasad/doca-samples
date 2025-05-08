@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2023-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -307,12 +307,14 @@ static void create_ipv6_tunnel_encap(struct encrypt_rule *rule,
  * @is_root [in]: true for vnf mode
  * @debug_mode [in]: true for vnf mode
  * @encrypt_pipes [in]: all the encrypt pipes
+ * @app_cfg [in]: application configuration struct
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t create_egress_ip_classifier(struct doca_flow_port *port,
 						bool is_root,
 						bool debug_mode,
-						struct encrypt_pipes *encrypt_pipes)
+						struct encrypt_pipes *encrypt_pipes,
+						struct ipsec_security_gw_config *app_cfg)
 {
 	struct doca_flow_match match;
 	struct doca_flow_monitor monitor;
@@ -321,13 +323,12 @@ static doca_error_t create_egress_ip_classifier(struct doca_flow_port *port,
 	struct security_gateway_pipe_info *pipe = &encrypt_pipes->egress_ip_classifier;
 	struct doca_flow_pipe_entry **entry = NULL;
 	doca_error_t result;
-	struct entries_status status;
 	int num_of_entries = 2;
 
 	memset(&match, 0, sizeof(match));
 	memset(&monitor, 0, sizeof(monitor));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	match.parser_meta.outer_l3_type = UINT32_MAX;
 	result = doca_flow_pipe_cfg_create(&pipe_cfg, port);
@@ -408,7 +409,7 @@ static doca_error_t create_egress_ip_classifier(struct doca_flow_port *port,
 					  NULL,
 					  &fwd,
 					  DOCA_FLOW_WAIT_FOR_BATCH,
-					  &status,
+					  &app_cfg->secured_status[0],
 					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add ipv4 entry: %s", doca_error_get_descr(result));
@@ -422,7 +423,15 @@ static doca_error_t create_egress_ip_classifier(struct doca_flow_port *port,
 		snprintf(pipe->entries_info[pipe->nb_entries].name, MAX_NAME_LEN, "IPv6");
 		entry = &pipe->entries_info[pipe->nb_entries++].entry;
 	}
-	result = doca_flow_pipe_add_entry(0, pipe->pipe, &match, NULL, NULL, &fwd, DOCA_FLOW_NO_WAIT, &status, entry);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe->pipe,
+					  &match,
+					  NULL,
+					  NULL,
+					  &fwd,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add ipv6 entry: %s", doca_error_get_descr(result));
 		return result;
@@ -431,7 +440,7 @@ static doca_error_t create_egress_ip_classifier(struct doca_flow_port *port,
 	result = doca_flow_entries_process(port, 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
-	if (status.nb_processed != num_of_entries || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return DOCA_SUCCESS;
@@ -454,7 +463,6 @@ static doca_error_t add_vxlan_encap_pipe_entry(struct doca_flow_port *port,
 					       struct ipsec_security_gw_config *app_cfg)
 {
 	int num_of_entries = 1;
-	struct entries_status status;
 	struct doca_flow_match match;
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
@@ -462,7 +470,7 @@ static doca_error_t add_vxlan_encap_pipe_entry(struct doca_flow_port *port,
 
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	if (app_cfg->debug_mode) {
 		pipe->entries_info =
@@ -485,8 +493,15 @@ static doca_error_t add_vxlan_encap_pipe_entry(struct doca_flow_port *port,
 	actions.encap_cfg.encap.tun.type = DOCA_FLOW_TUN_VXLAN;
 	actions.encap_cfg.encap.tun.vxlan_tun_id = DOCA_HTOBE32(app_cfg->vni);
 
-	result =
-		doca_flow_pipe_add_entry(0, pipe->pipe, &match, &actions, NULL, NULL, DOCA_FLOW_NO_WAIT, &status, entry);
+	result = doca_flow_pipe_add_entry(0,
+					  pipe->pipe,
+					  &match,
+					  &actions,
+					  NULL,
+					  NULL,
+					  DOCA_FLOW_NO_WAIT,
+					  &app_cfg->secured_status[0],
+					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add ipv4 entry: %s", doca_error_get_descr(result));
 		return result;
@@ -495,7 +510,7 @@ static doca_error_t add_vxlan_encap_pipe_entry(struct doca_flow_port *port,
 	result = doca_flow_entries_process(port, 0, DEFAULT_TIMEOUT_US, num_of_entries);
 	if (result != DOCA_SUCCESS)
 		return result;
-	if (status.nb_processed != num_of_entries || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != num_of_entries || app_cfg->secured_status[0].failure)
 		return DOCA_ERROR_BAD_STATE;
 
 	return DOCA_SUCCESS;
@@ -619,7 +634,6 @@ static doca_error_t create_marker_encap_pipe(struct doca_flow_port *port,
 	struct doca_flow_actions *actions_list[] = {&actions_arr[0]};
 	struct doca_flow_fwd fwd;
 	struct doca_flow_pipe_cfg *pipe_cfg;
-	struct entries_status status;
 	struct security_gateway_pipe_info *pipe_info = &app_cfg->encrypt_pipes.marker_insert_pipe;
 	struct doca_flow_pipe_entry *entry = NULL;
 	doca_error_t result;
@@ -634,7 +648,7 @@ static doca_error_t create_marker_encap_pipe(struct doca_flow_port *port,
 	memset(&monitor, 0, sizeof(monitor));
 	memset(&actions, 0, sizeof(actions));
 	memset(&fwd, 0, sizeof(fwd));
-	memset(&status, 0, sizeof(status));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 
 	actions.has_crypto_encap = true;
 	actions.crypto_encap.action_type = DOCA_FLOW_CRYPTO_REFORMAT_ENCAP;
@@ -724,7 +738,7 @@ static doca_error_t create_marker_encap_pipe(struct doca_flow_port *port,
 					  NULL,
 					  &fwd,
 					  DOCA_FLOW_NO_WAIT,
-					  &status,
+					  &app_cfg->secured_status[0],
 					  &entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add non-ESP marker encap entry: %s", doca_error_get_descr(result));
@@ -735,7 +749,7 @@ static doca_error_t create_marker_encap_pipe(struct doca_flow_port *port,
 	if (result != DOCA_SUCCESS)
 		goto destroy_pipe_cfg;
 
-	if (status.nb_processed != 1 || status.failure)
+	if (app_cfg->secured_status[0].nb_processed != 1 || app_cfg->secured_status[0].failure)
 		result = DOCA_ERROR_BAD_STATE;
 
 	if (result == DOCA_SUCCESS && pipe_info->entries_info != NULL) {
@@ -799,11 +813,7 @@ static doca_error_t create_ipsec_encrypt_pipe(struct doca_flow_port *port,
 		actions.crypto.ipsec_sa.sn_en = !app_cfg->sw_sn_inc_enable;
 	}
 	actions.crypto.action_type = DOCA_FLOW_CRYPTO_ACTION_ENCRYPT;
-#ifdef MLX5DV_HWS
 	actions.crypto.crypto_id = UINT32_MAX;
-#else
-	actions.crypto.crypto_id = ENCRYPT_DUMMY_ID;
-#endif
 
 	if (app_cfg->mode == IPSEC_SECURITY_GW_TUNNEL) {
 		actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_ESP_TUNNEL;
@@ -1455,9 +1465,9 @@ static doca_error_t create_ipsec_encrypt_shared_object(struct ipsec_security_gw_
 
 	memset(&cfg, 0, sizeof(cfg));
 
-	cfg.domain = DOCA_FLOW_PIPE_DOMAIN_SECURE_EGRESS;
 	cfg.ipsec_sa_cfg.icv_len = app_cfg->icv_length;
 	cfg.ipsec_sa_cfg.salt = app_sa_attrs->salt;
+	cfg.ipsec_sa_cfg.implicit_iv = app_sa_attrs->iv;
 	cfg.ipsec_sa_cfg.key_cfg.key_type = app_sa_attrs->key_type;
 	cfg.ipsec_sa_cfg.key_cfg.key = (void *)&app_sa_attrs->enc_key_data;
 	cfg.ipsec_sa_cfg.sn_initial = app_cfg->sn_initial;
@@ -1475,30 +1485,6 @@ static doca_error_t create_ipsec_encrypt_shared_object(struct ipsec_security_gw_
 
 	return DOCA_SUCCESS;
 }
-
-#ifndef MLX5DV_HWS
-/*
- * Create dummy SA, and config and bind doca flow shared resource with it
- *
- * @cfg [in]: application configuration struct
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t create_ipsec_encrypt_dummy_shared_object(struct ipsec_security_gw_config *cfg)
-{
-	doca_error_t result;
-	struct ipsec_security_gw_sa_attrs dummy_sa_attr = {
-		.key_type = DOCA_FLOW_CRYPTO_KEY_256,
-		.enc_key_data[0] = 0x01,
-		.salt = 0x12345678,
-	};
-
-	result = create_ipsec_encrypt_shared_object(&dummy_sa_attr, cfg, ENCRYPT_DUMMY_ID);
-	if (result != DOCA_SUCCESS)
-		return result;
-
-	return DOCA_SUCCESS;
-}
-#endif
 
 /*
  * Get the relevant pipe for adding the rule
@@ -1714,8 +1700,6 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
 	struct security_gateway_pipe_info *encrypt_pipe;
-	struct entries_status hairpin_status;
-	struct entries_status encrypt_status;
 	struct doca_flow_port *secured_port = NULL;
 	struct doca_flow_port *unsecured_port = NULL;
 	union security_gateway_pkt_meta meta = {0};
@@ -1729,8 +1713,8 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 		unsecured_port = ports[UNSECURED_IDX]->port;
 	}
 
-	memset(&hairpin_status, 0, sizeof(hairpin_status));
-	memset(&encrypt_status, 0, sizeof(encrypt_status));
+	memset(&app_cfg->unsecured_status[0], 0, sizeof(app_cfg->unsecured_status[0]));
+	memset(&app_cfg->secured_status[0], 0, sizeof(app_cfg->secured_status[0]));
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
 
@@ -1748,7 +1732,13 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 			encrypt_pipe = &app_cfg->encrypt_pipes.ipv6_encrypt_pipe;
 	}
 	/* add entry to hairpin pipe*/
-	result = add_five_tuple_match_entry(unsecured_port, rule, app_cfg, rule_id + 1, rule_id, 0, &hairpin_status);
+	result = add_five_tuple_match_entry(unsecured_port,
+					    rule,
+					    app_cfg,
+					    rule_id + 1,
+					    rule_id,
+					    0,
+					    &app_cfg->unsecured_status[0]);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 		return result;
@@ -1789,46 +1779,38 @@ doca_error_t add_encrypt_entry(struct encrypt_rule *rule,
 					  NULL,
 					  NULL,
 					  DOCA_FLOW_NO_WAIT,
-					  &encrypt_status,
+					  &app_cfg->secured_status[0],
 					  entry);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 		return result;
 	}
-	encrypt_status.entries_in_queue++;
+	app_cfg->secured_status[0].entries_in_queue++;
 
 	/* process the entries in the encryption pipe*/
 	do {
-		result = process_entries(secured_port, &encrypt_status, DEFAULT_TIMEOUT_US, 0);
+		result = process_entries(secured_port, &app_cfg->secured_status[0], DEFAULT_TIMEOUT_US, 0);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (encrypt_status.entries_in_queue > 0);
+	} while (app_cfg->secured_status[0].entries_in_queue > 0);
 
 	/* process the entries in the 5 tuple match pipes */
 	do {
-		result = process_entries(unsecured_port, &hairpin_status, DEFAULT_TIMEOUT_US, 0);
+		result = process_entries(unsecured_port, &app_cfg->unsecured_status[0], DEFAULT_TIMEOUT_US, 0);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (hairpin_status.entries_in_queue > 0);
+	} while (app_cfg->unsecured_status[0].entries_in_queue > 0);
 	return DOCA_SUCCESS;
 }
 
-/*
- * Bind encrypt IDs to the secure port
- *
- * @nb_rules [in]: number of decrypt rules
- * @port [in]: secure port pointer
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port)
+doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port)
 {
 	doca_error_t result;
 	int i, array_len = nb_rules;
 	uint32_t *res_array;
 
-#ifndef MLX5DV_HWS
-	array_len++;
-#endif
+	if (array_len == 0)
+		return DOCA_SUCCESS;
 	res_array = (uint32_t *)malloc(array_len * sizeof(uint32_t));
 	if (res_array == NULL) {
 		DOCA_LOG_ERR("Failed to allocate ids array");
@@ -1838,9 +1820,6 @@ static doca_error_t bind_encrypt_ids(int nb_rules, struct doca_flow_port *port)
 	for (i = 0; i < nb_rules; i++) {
 		res_array[i] = i;
 	}
-#ifndef MLX5DV_HWS
-	res_array[nb_rules] = ENCRYPT_DUMMY_ID;
-#endif
 
 	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, res_array, array_len, port);
 	if (result != DOCA_SUCCESS) {
@@ -1863,8 +1842,6 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 	struct doca_flow_actions actions;
 	struct doca_flow_pipe_entry **entry = NULL;
 	struct security_gateway_pipe_info *encrypt_pipe;
-	struct entries_status hairpin_status;
-	struct entries_status encrypt_status;
 	enum doca_flow_flags_type flags;
 	struct doca_flow_port *secured_port = NULL;
 	struct doca_flow_port *unsecured_port = NULL;
@@ -1882,8 +1859,8 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 		unsecured_port = ports[UNSECURED_IDX]->port;
 	}
 
-	memset(&hairpin_status, 0, sizeof(hairpin_status));
-	memset(&encrypt_status, 0, sizeof(encrypt_status));
+	memset(&app_cfg->secured_status[queue_id], 0, sizeof(app_cfg->secured_status[queue_id]));
+	memset(&app_cfg->unsecured_status[queue_id], 0, sizeof(app_cfg->unsecured_status[queue_id]));
 	memset(&match, 0, sizeof(match));
 	memset(&actions, 0, sizeof(actions));
 
@@ -1910,7 +1887,7 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 						    nb_rules,
 						    rule_id,
 						    queue_id,
-						    &hairpin_status);
+						    &app_cfg->unsecured_status[queue_id]);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
@@ -1941,7 +1918,7 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 		else
 			create_ipsec_encrypt_shared_object_transport_over_udp(&actions.crypto_encap, &rules[rule_id]);
 
-		if (rule_id == nb_rules - 1 || encrypt_status.entries_in_queue == QUEUE_DEPTH - 1)
+		if (rule_id == nb_rules - 1 || app_cfg->secured_status[queue_id].entries_in_queue == QUEUE_DEPTH - 1)
 			flags = DOCA_FLOW_NO_WAIT;
 		else
 			flags = DOCA_FLOW_WAIT_FOR_BATCH;
@@ -1957,32 +1934,39 @@ doca_error_t add_encrypt_entries(struct ipsec_security_gw_config *app_cfg,
 						  NULL,
 						  NULL,
 						  flags,
-						  &encrypt_status,
+						  &app_cfg->secured_status[queue_id],
 						  entry);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to add pipe entry: %s", doca_error_get_descr(result));
 			return result;
 		}
-		encrypt_status.entries_in_queue++;
-		if (encrypt_status.entries_in_queue == QUEUE_DEPTH) {
-			result = process_entries(secured_port, &encrypt_status, DEFAULT_TIMEOUT_US, queue_id);
+		app_cfg->secured_status[queue_id].entries_in_queue++;
+		if (app_cfg->secured_status[queue_id].entries_in_queue == QUEUE_DEPTH) {
+			result = process_entries(secured_port,
+						 &app_cfg->secured_status[queue_id],
+						 DEFAULT_TIMEOUT_US,
+						 queue_id);
 			if (result != DOCA_SUCCESS)
 				return result;
 		}
 	}
 	/* process the entries in the encryption pipe*/
 	do {
-		result = process_entries(secured_port, &encrypt_status, DEFAULT_TIMEOUT_US, queue_id);
+		result =
+			process_entries(secured_port, &app_cfg->secured_status[queue_id], DEFAULT_TIMEOUT_US, queue_id);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (encrypt_status.entries_in_queue > 0);
+	} while (app_cfg->secured_status[queue_id].entries_in_queue > 0);
 
 	/* process the entries in the 5 tuple match pipes */
 	do {
-		result = process_entries(unsecured_port, &hairpin_status, DEFAULT_TIMEOUT_US, queue_id);
+		result = process_entries(unsecured_port,
+					 &app_cfg->unsecured_status[queue_id],
+					 DEFAULT_TIMEOUT_US,
+					 queue_id);
 		if (result != DOCA_SUCCESS)
 			return result;
-	} while (hairpin_status.entries_in_queue > 0);
+	} while (app_cfg->unsecured_status[queue_id].entries_in_queue > 0);
 	return DOCA_SUCCESS;
 }
 
@@ -2008,17 +1992,6 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
 		secured_port = doca_flow_port_switch_get(NULL);
 		is_root = false;
 	}
-
-	result = bind_encrypt_ids(app_cfg->app_rules.nb_encrypt_rules, secured_port);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to bind IDs: %s", doca_error_get_descr(result));
-		return result;
-	}
-#ifndef MLX5DV_HWS
-	result = create_ipsec_encrypt_dummy_shared_object(app_cfg);
-	if (result != DOCA_SUCCESS)
-		return result;
-#endif
 
 	if (app_cfg->vxlan_encap) {
 		if (app_cfg->marker_encap) {
@@ -2059,7 +2032,11 @@ doca_error_t ipsec_security_gw_create_encrypt_egress(struct ipsec_security_gw_po
 		return result;
 
 	snprintf(app_cfg->encrypt_pipes.egress_ip_classifier.name, MAX_NAME_LEN, "ip_classifier");
-	result = create_egress_ip_classifier(secured_port, is_root, app_cfg->debug_mode, &app_cfg->encrypt_pipes);
+	result = create_egress_ip_classifier(secured_port,
+					     is_root,
+					     app_cfg->debug_mode,
+					     &app_cfg->encrypt_pipes,
+					     app_cfg);
 	if (result != DOCA_SUCCESS)
 		return result;
 
@@ -2247,7 +2224,7 @@ static doca_error_t prepare_packet_tunnel(struct rte_mbuf **m,
 	esp_len = reformat_encap_data_len - sizeof(struct rte_ether_hdr);
 
 	encrypted_len = payload_len + (sizeof(struct rte_esp_tail));
-	/* align payload to 16 bytes */
+	/* align payload to 4 bytes */
 	encrypted_len = RTE_ALIGN_CEIL(encrypted_len, PADDING_ALIGN);
 
 	padding_len = encrypted_len - payload_len;
@@ -2290,8 +2267,9 @@ static doca_error_t prepare_packet_tunnel(struct rte_mbuf **m,
 
 	padding_len -= sizeof(struct rte_esp_tail);
 
-	/* add padding */
-	memcpy(trailer_pointer, esp_pad_bytes, RTE_MIN(padding_len, sizeof(esp_pad_bytes)));
+	/* add padding (if needed) */
+	if (padding_len > 0)
+		memcpy(trailer_pointer, esp_pad_bytes, RTE_MIN(padding_len, sizeof(esp_pad_bytes)));
 
 	esp_tail = (struct rte_esp_tail *)(trailer_pointer + padding_len);
 	esp_tail->pad_len = padding_len;
@@ -2358,7 +2336,7 @@ static doca_error_t prepare_packet_transport(struct rte_mbuf **m,
 	esp_len = reformat_encap_data_len;
 
 	encrypted_len = payload_len + (sizeof(struct rte_esp_tail));
-	/* align payload to 16 bytes */
+	/* align payload to 4 bytes */
 	encrypted_len = RTE_ALIGN_CEIL(encrypted_len, PADDING_ALIGN);
 
 	padding_len = encrypted_len - payload_len;
@@ -2415,8 +2393,9 @@ static doca_error_t prepare_packet_transport(struct rte_mbuf **m,
 
 	padding_len -= sizeof(struct rte_esp_tail);
 
-	/* add padding */
-	memcpy(trailer_pointer, esp_pad_bytes, RTE_MIN(padding_len, sizeof(esp_pad_bytes)));
+	/* add padding (if needed) */
+	if (padding_len > 0)
+		memcpy(trailer_pointer, esp_pad_bytes, RTE_MIN(padding_len, sizeof(esp_pad_bytes)));
 
 	/* set the next proto according to the original packet */
 	esp_tail = (struct rte_esp_tail *)(trailer_pointer + padding_len);

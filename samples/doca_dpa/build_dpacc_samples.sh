@@ -51,7 +51,7 @@ DOCA_TOOLS="${DOCA_DIR}/tools"
 DOCA_DPACC="${DOCA_TOOLS}/dpacc"
 
 HOST_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_ALLOW_EXPERIMENTAL_API"
-DEVICE_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_DEV_ALLOW_EXPERIMENTAL_API"
+DEVICE_CC_FLAGS="-Wno-deprecated-declarations -Werror -Wall -Wextra -DFLEXIO_DEV_ALLOW_EXPERIMENTAL_API -O2"
 
 # DOCA DPA APP Configuration
 # This variable name passed to DPACC with --app-name parameter and it's token must be identical to the

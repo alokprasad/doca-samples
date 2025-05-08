@@ -153,7 +153,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < DOCA_DEVINFO_MAC_ADDR_SIZE; i++)
 		eth_txq_cfg.dest_mac_address[i] = 0xff;
 
-	result = doca_argp_init("doca_eth_txq_batch_lso_send_ethernet_frames", &eth_txq_cfg);
+	result = doca_argp_init(NULL, &eth_txq_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto sample_exit;

@@ -188,9 +188,7 @@ static doca_error_t create_doca_flow_port(int port_id,
 					  struct doca_flow_port **port,
 					  uint32_t actions_mem_size)
 {
-	int max_port_str_len = 128;
 	struct doca_flow_port_cfg *port_cfg;
-	char port_id_str[max_port_str_len];
 	doca_error_t result, tmp_result;
 
 	result = doca_flow_port_cfg_create(&port_cfg);
@@ -205,10 +203,9 @@ static doca_error_t create_doca_flow_port(int port_id,
 		goto destroy_port_cfg;
 	}
 
-	snprintf(port_id_str, max_port_str_len, "%d", port_id);
-	result = doca_flow_port_cfg_set_devargs(port_cfg, port_id_str);
+	result = doca_flow_port_cfg_set_port_id(port_cfg, port_id);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg devargs: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port_id: %s", doca_error_get_descr(result));
 		goto destroy_port_cfg;
 	}
 

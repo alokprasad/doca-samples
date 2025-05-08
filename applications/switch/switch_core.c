@@ -41,7 +41,7 @@ DOCA_LOG_REGISTER(SWITCH::Core);
 static struct flow_pipes_manager *pipes_manager;
 static struct doca_flow_port *ports[FLOW_SWITCH_PORTS_MAX];
 static uint32_t actions_mem_size[FLOW_SWITCH_PORTS_MAX];
-static int nr_ports;
+static int nb_ports;
 
 /*
  * Create DOCA Flow pipe
@@ -384,12 +384,9 @@ doca_error_t switch_init(struct application_dpdk_config *app_dpdk_config, struct
 	uint32_t nr_shared_resources[SHARED_RESOURCE_NUM_VALUES] = {0};
 	struct flow_resources resource = {0};
 	int nr_switch_manager_ports = 1;
-	int nr_representors = ctx->nb_reps;
 	int nr_entries = 10000;
 	const char *start_str;
 	doca_error_t result;
-
-	nr_ports = nr_switch_manager_ports + nr_representors;
 
 	memset(&ports, 0, sizeof(ports));
 	memset(&actions_mem_size, 0, sizeof(actions_mem_size));
@@ -398,6 +395,8 @@ doca_error_t switch_init(struct application_dpdk_config *app_dpdk_config, struct
 		DOCA_LOG_ERR("Switch is allowed to run with one PF only");
 		return DOCA_ERROR_INVALID_VALUE;
 	}
+
+	nb_ports = app_dpdk_config->port_config.nb_ports;
 
 	if (ctx->is_expert)
 		start_str = "switch,isolated,hws,expert";
@@ -412,7 +411,7 @@ doca_error_t switch_init(struct application_dpdk_config *app_dpdk_config, struct
 
 	/* Doca_dev is opened for proxy_port only */
 	ARRAY_INIT(actions_mem_size, ACTIONS_MEM_SIZE(app_dpdk_config->port_config.nb_queues, nr_entries));
-	result = init_doca_flow_ports(nr_ports, ports, false /* is_hairpin */, ctx->doca_dev, actions_mem_size);
+	result = init_doca_flow_ports(nb_ports, ports, false /* is_hairpin */, ctx->doca_dev, actions_mem_size);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init DOCA ports: %s", doca_error_get_descr(result));
 		doca_flow_destroy();
@@ -421,7 +420,7 @@ doca_error_t switch_init(struct application_dpdk_config *app_dpdk_config, struct
 
 	result = create_pipes_manager(&pipes_manager);
 	if (result != DOCA_SUCCESS) {
-		stop_doca_flow_ports(nr_ports, ports);
+		stop_doca_flow_ports(nb_ports, ports);
 		doca_flow_destroy();
 		DOCA_LOG_ERR("Failed to create pipes manager: %s", doca_error_get_descr(result));
 		return DOCA_ERROR_INITIALIZATION;
@@ -433,7 +432,7 @@ doca_error_t switch_init(struct application_dpdk_config *app_dpdk_config, struct
 
 void switch_destroy(void)
 {
-	stop_doca_flow_ports(nr_ports, ports);
+	stop_doca_flow_ports(nb_ports, ports);
 	doca_flow_destroy();
 	destroy_pipes_manager(pipes_manager);
 }

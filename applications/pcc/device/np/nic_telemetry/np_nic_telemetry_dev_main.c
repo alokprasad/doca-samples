@@ -26,35 +26,48 @@
 #include <doca_pcc_np_dev.h>
 #include "pcc_common_dev.h"
 
-#define NUM_LOGICAL_PORTS (2)
-
 /**< Counters IDs to configure and read from */
 uint32_t counter_ids[DOCA_PCC_DEV_MAX_NUM_PORTS] = {0};
 /**< Table of RX bytes counters to sample to */
 uint32_t current_sampled_rx_bytes[DOCA_PCC_DEV_MAX_NUM_PORTS] = {0};
 /**< Flag to indicate that the counters have been initiated */
 uint32_t counters_started = 0;
+/**< Number of available and initiated logical ports */
+uint32_t ports_num = 0;
 
 /**
- * @brief Initiate counter IDs global array on port for RX bytes counter type
+ * @brief Count the number of available logical ports from queried mask
+ *
+ * @param[in] ports_mask - ports_mask
+ *
+ * @return - number of available logical ports initiated in mask
  */
-FORCE_INLINE void init_counter_ids(void)
+FORCE_INLINE uint32_t count_ports(uint32_t ports_mask)
 {
-	for (uint32_t i = 0; i < DOCA_PCC_DEV_MAX_NUM_PORTS; i++)
-		counter_ids[i] = DOCA_PCC_DEV_GET_PORT_COUNTER_ID(i, DOCA_PCC_DEV_NIC_COUNTER_TYPE_RX_BYTES, 0);
+	// find maximum port id enabled. Assume enabled ports are continuous
+	return doca_pcc_dev_fls(ports_mask);
+}
+
+/*
+ * Called on link or port info state change.
+ * This callback is used to configure port counters to query RX bytes on
+ *
+ * @return - void
+ */
+void doca_pcc_dev_user_port_info_changed(uint32_t portid)
+{
+	counter_ids[portid] = DOCA_PCC_DEV_GET_PORT_COUNTER_ID(portid, DOCA_PCC_DEV_NIC_COUNTER_TYPE_RX_BYTES, 0);
+	/* number of ports to initiate counters for */
+	ports_num = count_ports(doca_pcc_dev_get_logical_ports());
+	/* Configure counters to read */
+	doca_pcc_dev_nic_counters_config(counter_ids, ports_num, current_sampled_rx_bytes);
+	counters_started = 1;
+	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 }
 
 doca_pcc_dev_error_t doca_pcc_dev_np_user_packet_handler(struct doca_pcc_np_dev_request_packet *in,
 							 struct doca_pcc_np_dev_response_packet *out)
 {
-	if (doca_pcc_dev_thread_rank() == 0 && counters_started == 0) {
-		init_counter_ids();
-		/* Configure counters to read */
-		doca_pcc_dev_nic_counters_config(counter_ids, NUM_LOGICAL_PORTS, current_sampled_rx_bytes);
-		counters_started = 1;
-		__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
-	}
-
 	uint32_t *send_ts_p = (uint32_t *)(out->data);
 	uint32_t *rx_256_bytes_p = (uint32_t *)(out->data + 4);
 	uint32_t *rx_ts_p = (uint32_t *)(out->data + 8);

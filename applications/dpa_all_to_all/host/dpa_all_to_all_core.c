@@ -250,7 +250,14 @@ static doca_error_t open_dpa_devices(const char *pf_device_name,
 	uint32_t nb_devs = 0;
 	doca_error_t result, dpa_cap;
 	char ibdev_name[DOCA_DEVINFO_IBDEV_NAME_SIZE] = {0};
+	char actual_base_ibdev_name[DOCA_DEVINFO_IBDEV_NAME_SIZE] = {0};
 	uint32_t i = 0;
+
+	if (strcmp(pf_device_name, IB_DEVICE_DEFAULT_NAME) != 0 &&
+	    strcmp(rdma_device_name, IB_DEVICE_DEFAULT_NAME) != 0 && strcmp(pf_device_name, rdma_device_name) == 0) {
+		DOCA_LOG_ERR("RDMA DOCA device must be different than PF DOCA device (%s)", pf_device_name);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
 
 	result = doca_devinfo_create_list(&dev_list, &nb_devs);
 	if (result != DOCA_SUCCESS) {
@@ -267,6 +274,10 @@ static doca_error_t open_dpa_devices(const char *pf_device_name,
 #ifdef DOCA_ARCH_DPU
 		doca_error_t rdma_cap = doca_rdma_cap_task_send_is_supported(dev_list[i]);
 		if (*rdma_doca_device == NULL && rdma_cap == DOCA_SUCCESS) {
+			/* to be able to extend rdma device later on (if needed), it must be a different device */
+			if (strcmp(ibdev_name, actual_base_ibdev_name) == 0) {
+				continue;
+			}
 			if (strncmp(rdma_device_name, IB_DEVICE_DEFAULT_NAME, strlen(IB_DEVICE_DEFAULT_NAME)) == 0 ||
 			    strncmp(rdma_device_name, ibdev_name, MAX_IB_DEVICE_NAME_LEN) == 0) {
 				result = doca_dev_open(dev_list[i], rdma_doca_device);
@@ -293,6 +304,7 @@ static doca_error_t open_dpa_devices(const char *pf_device_name,
 						     doca_error_get_descr(result));
 					return result;
 				}
+				strncpy(actual_base_ibdev_name, ibdev_name, DOCA_DEVINFO_IBDEV_NAME_SIZE);
 			}
 		}
 	}
@@ -1649,18 +1661,30 @@ destroy_events:
 		DOCA_ERROR_PROPAGATE(result, tmp_result);
 	}
 destroy_dpa:
-	/* Destroy DOCA DPA context */
+#ifdef DOCA_ARCH_DPU
 	tmp_result = doca_dpa_destroy(resources->rdma_doca_dpa);
 	if (tmp_result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to destroy DOCA DPA context: %s", doca_error_get_descr(tmp_result));
+		DOCA_LOG_ERR("Failed to destroy extended DOCA DPA context: %s", doca_error_get_descr(tmp_result));
 		DOCA_ERROR_PROPAGATE(result, tmp_result);
 	}
-	/* Close DOCA device */
+#endif
+	tmp_result = doca_dpa_destroy(resources->pf_doca_dpa);
+	if (tmp_result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to destroy base DOCA DPA context: %s", doca_error_get_descr(tmp_result));
+		DOCA_ERROR_PROPAGATE(result, tmp_result);
+	}
+	tmp_result = doca_dev_close(resources->pf_doca_device);
+	if (tmp_result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to close base DOCA DPA device: %s", doca_error_get_descr(tmp_result));
+		DOCA_ERROR_PROPAGATE(result, tmp_result);
+	}
+#ifdef DOCA_ARCH_DPU
 	tmp_result = doca_dev_close(resources->rdma_doca_device);
 	if (tmp_result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to close DOCA device: %s", doca_error_get_descr(tmp_result));
+		DOCA_LOG_ERR("Failed to close extended DOCA DPA device: %s", doca_error_get_descr(tmp_result));
 		DOCA_ERROR_PROPAGATE(result, tmp_result);
 	}
+#endif
 
 	return result;
 }

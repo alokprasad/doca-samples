@@ -37,7 +37,6 @@ static uint64_t default_flow_timeout_usec;
 struct doca_flow_port *init_doca_flow(uint16_t port_id, uint8_t rxq_num)
 {
 	doca_error_t result;
-	char port_id_str[MAX_PORT_STR_LEN];
 	struct doca_flow_port_cfg *port_cfg;
 	struct doca_flow_port *df_port;
 	struct doca_flow_cfg *rxq_flow_cfg;
@@ -155,10 +154,9 @@ struct doca_flow_port *init_doca_flow(uint16_t port_id, uint8_t rxq_num)
 		DOCA_LOG_ERR("Failed to create doca_flow_port_cfg: %s", doca_error_get_descr(result));
 		return NULL;
 	}
-	snprintf(port_id_str, MAX_PORT_STR_LEN, "%d", port_id);
-	result = doca_flow_port_cfg_set_devargs(port_cfg, port_id_str);
+	result = doca_flow_port_cfg_set_port_id(port_cfg, port_id);
 	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg devargs: %s", doca_error_get_descr(result));
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port_id: %s", doca_error_get_descr(result));
 		doca_flow_port_cfg_destroy(port_cfg);
 		return NULL;
 	}

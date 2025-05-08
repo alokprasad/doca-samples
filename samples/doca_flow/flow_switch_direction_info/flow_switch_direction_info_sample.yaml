@@ -29,7 +29,8 @@ ports_description:
   port_0: doca_dev
   port_1: doca_rep_dev
   port_2: doca_rep_dev
-description: "This sample illustrates how to give a hint to the driver for potential optimizations based on the direction information"
+description: "This sample illustrates how to give a hint to the driver for potential optimizations based on the direction information.
+              Sample Command Line: ./build/doca_flow_switch_direction_info   -- -l 60 -p 08:00.0 -r sf[0-1]"
 use_cases:
   - name: "Flow switch direction info use case #1"
     args: ""

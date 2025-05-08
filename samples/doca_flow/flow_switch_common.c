@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <rte_byteorder.h>
+#include <rte_ethdev.h>
 
 #include <doca_argp.h>
 #include <doca_log.h>
@@ -128,7 +129,6 @@ doca_error_t register_doca_flow_switch_param(void)
 	doca_argp_param_set_description(pci_param, "device PCI address");
 	doca_argp_param_set_callback(pci_param, param_flow_switch_pci_callback);
 	doca_argp_param_set_type(pci_param, DOCA_ARGP_TYPE_STRING);
-	doca_argp_param_set_mandatory(pci_param);
 	doca_argp_param_set_multiplicity(pci_param);
 	result = doca_argp_register_param(pci_param);
 	if (result != DOCA_SUCCESS) {
@@ -146,7 +146,6 @@ doca_error_t register_doca_flow_switch_param(void)
 	doca_argp_param_set_description(rep_param, "device representor");
 	doca_argp_param_set_callback(rep_param, param_flow_switch_rep_callback);
 	doca_argp_param_set_type(rep_param, DOCA_ARGP_TYPE_STRING);
-	doca_argp_param_set_mandatory(rep_param);
 	doca_argp_param_set_multiplicity(rep_param);
 	result = doca_argp_register_param(rep_param);
 	if (result != DOCA_SUCCESS) {
@@ -229,4 +228,20 @@ void destroy_doca_flow_switch_common(struct flow_switch_ctx *ctx)
 			ctx->doca_dev[i] = NULL;
 		}
 	}
+}
+
+uint8_t get_dpdk_nb_ports(void)
+{
+	uint8_t nb_ports = 0;
+	uint16_t port_id;
+
+	for (port_id = 0; port_id < RTE_MAX_ETHPORTS; port_id++) {
+		if (!rte_eth_dev_is_valid_port(port_id))
+			continue;
+
+		nb_ports++;
+		DOCA_LOG_INFO("Port ID %u is valid DPDK port", port_id);
+	}
+
+	return nb_ports;
 }

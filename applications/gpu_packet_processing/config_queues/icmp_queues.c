@@ -78,6 +78,8 @@ doca_error_t create_icmp_queues(struct rxq_icmp_queues *icmp_queues,
 							       MAX_PKT_SIZE_ICMP,
 							       MAX_PKT_NUM_ICMP,
 							       0,
+							       0,
+							       0,
 							       &cyclic_buffer_size);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to get eth_rxq cyclic buffer size: %s", doca_error_get_descr(result));

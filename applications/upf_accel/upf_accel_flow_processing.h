@@ -54,18 +54,19 @@ struct upf_accel_fp_accel_counters {
 };
 
 struct upf_accel_fp_data {
-	struct upf_accel_ctx *ctx;					       /* UPF Acceleration context */
-	uint16_t queue_id;						       /* Queue id */
-	struct rte_hash *dyn_tbl;					       /* Dynamic connection table */
-	struct upf_accel_entry_ctx *dyn_tbl_data;			       /* Dynamic connection table data */
-	struct upf_accel_fp_sw_counters sw_counters;			       /* SW DP counters */
-	struct app_shared_counter_ids quota_cntrs;			       /* Quota counters to handle */
-	struct upf_accel_fp_accel_counters accel_counters[PKT_DIR_NUM];	       /* Port acceleration counters */
-	struct upf_accel_fp_accel_counters unaccel_counters[PKT_DIR_NUM];      /* Port not accelerated counters */
-	struct upf_accel_fp_accel_counters accel_failed_counters[PKT_DIR_NUM]; /* Port acceleration failed counters */
-	struct upf_accel_sw_aging_ll sw_aging_ll[PKT_DIR_NUM];		       /* SW Aging linked list */
-	uint64_t last_hw_aging_tsc[UPF_ACCEL_PORTS_MAX];		       /* Last HW aging iteration timestamp */
-	bool hw_aging_in_progress[UPF_ACCEL_PORTS_MAX]; /* HW Aging in progress, more entries pending */
+	struct upf_accel_ctx *ctx;						  /* UPF Acceleration context */
+	uint16_t queue_id;							  /* Queue id */
+	struct rte_hash *dyn_tbl;						  /* Dynamic connection table */
+	struct upf_accel_entry_ctx *dyn_tbl_data;				  /* Dynamic connection table data */
+	struct upf_accel_fp_sw_counters sw_counters;				  /* SW DP counters */
+	struct app_shared_counter_ids quota_cntrs;				  /* Quota counters to handle */
+	struct upf_accel_fp_accel_counters accel_counters[PARSER_PKT_TYPE_NUM];	  /* Port acceleration counters */
+	struct upf_accel_fp_accel_counters unaccel_counters[PARSER_PKT_TYPE_NUM]; /* Port not accelerated counters */
+	struct upf_accel_fp_accel_counters accel_failed_counters[PARSER_PKT_TYPE_NUM]; /* Port acceleration failed
+											  counters */
+	struct upf_accel_sw_aging_ll sw_aging_ll[PARSER_PKT_TYPE_NUM];		       /* SW Aging linked list */
+	uint64_t last_hw_aging_tsc[UPF_ACCEL_PORTS_MAX]; /* Last HW aging iteration timestamp */
+	bool hw_aging_in_progress[UPF_ACCEL_PORTS_MAX];	 /* HW Aging in progress, more entries pending */
 } __rte_aligned(RTE_CACHE_LINE_SIZE);
 
 /*

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -29,8 +29,8 @@
 #include <inttypes.h>
 #include <string>
 
-#include <rte_ether.h>
 #include <rte_byteorder.h>
+#include <rte_ether.h>
 
 #include "doca_flow_net.h"
 #include "psp_gw_config.h"

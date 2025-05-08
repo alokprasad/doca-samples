@@ -31,6 +31,10 @@
 
 #define MAX_PATH_LEN 260
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Configuration struct */
 struct apsh_config {
 	DOCA_APSH_PROCESS_PID_TYPE pid;			     /* Process Identifier */
@@ -107,5 +111,9 @@ doca_error_t process_get(DOCA_APSH_PROCESS_PID_TYPE pid,
 			 int *nb_procs,
 			 struct doca_apsh_process ***processes,
 			 struct doca_apsh_process **process);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* APSH_COMMON_H_ */

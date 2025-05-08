@@ -26,7 +26,6 @@
 #include <doca_gpunetio_dev_buf.cuh>
 #include <doca_gpunetio_dev_eth_rxq.cuh>
 #include <doca_log.h>
-
 #include "gpunetio_common.h"
 
 DOCA_LOG_REGISTER(GPU_SEND_WAIT_TIME::KERNEL);
@@ -62,19 +61,8 @@ __global__ void receive_packets(struct doca_gpu_eth_rxq *eth_rxq_gpu, uint32_t *
 
 		buf_idx = threadIdx.x;
 		while (buf_idx < rx_pkt_num) {
-			ret = doca_gpu_dev_eth_rxq_get_buf(eth_rxq_gpu, rx_buf_idx + buf_idx, &buf_ptr);
-			if (ret != DOCA_SUCCESS) {
-				printf("UDP Error %d doca_gpu_dev_eth_rxq_get_buf thread %d\n", ret, threadIdx.x);
-				DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-				break;
-			}
-
-			ret = doca_gpu_dev_buf_get_addr(buf_ptr, &buf_addr);
-			if (ret != DOCA_SUCCESS) {
-				printf("UDP Error %d doca_gpu_dev_eth_rxq_get_buf thread %d\n", ret, threadIdx.x);
-				DOCA_GPUNETIO_VOLATILE(*exit_cond) = 1;
-				break;
-			}
+			doca_gpu_dev_eth_rxq_get_buf(eth_rxq_gpu, rx_buf_idx + buf_idx, &buf_ptr);
+			doca_gpu_dev_buf_get_addr(buf_ptr, &buf_addr);
 
 			printf("Thread %d received UDP packet with Eth src %02x:%02x:%02x:%02x:%02x:%02x - Eth dst %02x:%02x:%02x:%02x:%02x:%02x\n",
 				threadIdx.x,

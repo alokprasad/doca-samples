@@ -869,7 +869,7 @@ static doca_error_t parse_match_field(char *field_name, char *value, void *struc
 		match->flags = (uint32_t)strtol(value, NULL, HEXADECIMAL_BASE);
 
 	else if (strcmp(field_name, "port_meta") == 0)
-		match->parser_meta.port_meta = (uint32_t)strtol(value, NULL, 0);
+		match->parser_meta.port_id = (uint32_t)strtol(value, NULL, 0);
 
 	else if (strcmp(field_name, "outer.eth.src_mac") == 0) {
 		result = parse_mac_address(value, match->outer.eth.src_mac);

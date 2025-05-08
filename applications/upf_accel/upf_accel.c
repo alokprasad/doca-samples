@@ -58,19 +58,37 @@ static inline uint32_t port_id_and_idx_to_quota_counter(enum upf_accel_port port
 }
 
 /*
- * Get the offset in meter table
+ * Get the offset of a meter.
+ *
+ * Meters are organized as follows:
+ *
+ *         --       --
+ *         |        | Meter[0]
+ *         |        | Meter[1]
+ *         | PDR[0]- ...
+ *         |        |
+ *         |        | Meter[UPF_ACCEL_MAX_PDR_NUM_RATE_METERS - 1]
+ * Port[0]-         --
+ *         |        | Meter[UPF_ACCEL_MAX_PDR_NUM_RATE_METERS]
+ *         |        | Meter[UPF_ACCEL_MAX_PDR_NUM_RATE_METERS +1]
+ *         | PDR[1] - ...
+ *         |        |
+ *         |        |
+ *         --       -
+ *...
  *
  * @port_id [in]: port ID .
- * @domain [in]: pipe domain.
+ * @pdr_idx [in]: PDR index.
  * @meter_idx [in]: meter index.
  * @return: offset in meter table.
  */
 static inline uint32_t upf_accel_shared_meters_table_offset_get(enum upf_accel_port port_id,
-								enum doca_flow_pipe_domain domain,
+								uint32_t pdr_idx,
 								uint32_t meter_idx)
 {
-	return UPF_ACCEL_MAX_NUM_PDR * meter_idx +
-	       UPF_ACCEL_MAX_NUM_DOMAIN_METERS * upf_accel_domain_idx_get(port_id, domain);
+	const uint32_t num_meters_per_port = UPF_ACCEL_MAX_PDR_NUM_RATE_METERS * UPF_ACCEL_MAX_NUM_PDR;
+
+	return (port_id * num_meters_per_port) + UPF_ACCEL_MAX_PDR_NUM_RATE_METERS * pdr_idx + meter_idx;
 }
 
 /*
@@ -85,61 +103,97 @@ static inline uint64_t upf_accel_clamp_rate(uint64_t val)
 }
 
 /*
- * Shared meters init for a given domain and port
+ * Returns the index of a given pdr pointer located in pdrs.
+ *
+ * @pdrs [in]: PDRs struct
+ * @pdr [in]: PDR pointer from PDRs struct
+ * @return: pdr index in pdrs
+ */
+static inline uint32_t upf_accel_get_pdr_index_from_pdrs(const struct upf_accel_pdrs *pdrs,
+							 const struct upf_accel_pdr *pdr)
+{
+	if ((pdr < pdrs->arr_pdrs) || (pdr >= pdrs->arr_pdrs + pdrs->num_pdrs)) {
+		DOCA_LOG_ERR("Given PDR is not part of pdrs.");
+		assert(0);
+	}
+
+	return pdr - pdrs->arr_pdrs;
+}
+
+/*
+ * Returns QER by a given QER ID.
+ *
+ * @qers [in]: QERs struct
+ * @qer_id [in]: QER ID
+ * @return: qer pointer in qers
+ */
+static inline struct upf_accel_qer *upf_accel_get_qer_by_qer_id(struct upf_accel_qers *qers, uint32_t qer_id)
+{
+	uint32_t i;
+
+	for (i = 0; i < qers->num_qers; ++i) {
+		if (qers->arr_qers[i].id == qer_id) {
+			return &qers->arr_qers[i];
+		}
+	}
+
+	DOCA_LOG_ERR("Failed to find qer ID %u", qer_id);
+	assert(0);
+
+	return qers->arr_qers;
+}
+
+/*
+ * Shared meters init for a given port
  *
  * @upf_accel_ctx [in]: UPF Acceleration context.
  * @cfg [in]: shared resource configuration.
- * @qer [in]: UPF qer
+ * @qer [in]: UPF PDR
  * @port_id [in]: port ID.
- * @domain [in]: pipe domain.
- * @meter_idx [in]: meter index.
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t upf_accel_shared_meters_dev_domain_init(struct upf_accel_ctx *upf_accel_ctx,
-							    struct doca_flow_shared_resource_cfg *cfg,
-							    const struct upf_accel_qer *qer,
-							    enum upf_accel_port port_id,
-							    enum doca_flow_pipe_domain domain,
-							    uint32_t meter_idx)
+static doca_error_t upf_accel_shared_meters_dev_init(struct upf_accel_ctx *upf_accel_ctx,
+						     struct doca_flow_shared_resource_cfg *cfg,
+						     const struct upf_accel_pdr *pdr,
+						     enum upf_accel_port port_id)
 {
 	struct doca_flow_port *port = upf_accel_ctx->ports[port_id];
-	struct upf_accel_pdrs *pdrs = upf_accel_ctx->upf_accel_cfg->pdrs;
+	struct upf_accel_qers *qers = upf_accel_ctx->upf_accel_cfg->qers;
 	uint32_t ids_array[UPF_ACCEL_MAX_NUM_PDR] = {0};
-	const size_t num_pdrs = pdrs->num_pdrs;
-	const struct upf_accel_pdr *pdr;
+	struct upf_accel_qer *qer;
 	uint64_t ul_cir_cbs;
 	uint64_t dl_cir_cbs;
 	doca_error_t result;
-	uint32_t start_idx;
+	uint32_t meter_idx;
 	uint32_t i;
 
-	cfg->domain = domain;
+	for (i = 0; i < pdr->qerids_num; ++i) {
+		qer = upf_accel_get_qer_by_qer_id(qers, pdr->qerids[i]);
 
-	/*
-	 * QER MBR units: 1 kilobit per second.
-	 * CBS units: 1 byte per second.
-	 */
-	ul_cir_cbs = upf_accel_clamp_rate(1000 * (qer->mbr_ul_mbr / CHAR_BIT));
-	dl_cir_cbs = upf_accel_clamp_rate(1000 * (qer->mbr_dl_mbr / CHAR_BIT));
+		/*
+		 * QER MBR units: 1 kilobit per second.
+		 * CBS units: 1 byte per second.
+		 */
+		ul_cir_cbs = upf_accel_clamp_rate(1000 * (qer->mbr_ul_mbr / CHAR_BIT));
+		dl_cir_cbs = upf_accel_clamp_rate(1000 * (qer->mbr_dl_mbr / CHAR_BIT));
 
-	start_idx = upf_accel_shared_meters_table_offset_get(port_id, domain, meter_idx);
-
-	for (i = 0; i < num_pdrs; ++i) {
-		pdr = &pdrs->arr_pdrs[i];
+		meter_idx = upf_accel_shared_meters_table_offset_get(
+			port_id,
+			upf_accel_get_pdr_index_from_pdrs(upf_accel_ctx->upf_accel_cfg->pdrs, pdr),
+			i);
 		cfg->meter_cfg.cir = cfg->meter_cfg.cbs = (pdr->pdi_si == UPF_ACCEL_PDR_PDI_SI_UL) ? ul_cir_cbs :
 												     dl_cir_cbs;
-
-		result = doca_flow_shared_resource_set_cfg(DOCA_FLOW_SHARED_RESOURCE_METER, start_idx + i, cfg);
+		result = doca_flow_shared_resource_set_cfg(DOCA_FLOW_SHARED_RESOURCE_METER, meter_idx, cfg);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to cfg shared meter");
 			doca_flow_destroy();
 			return result;
 		}
 
-		ids_array[i] = start_idx + i;
+		ids_array[i] = meter_idx;
 	}
 
-	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_METER, ids_array, num_pdrs, port);
+	result = doca_flow_shared_resources_bind(DOCA_FLOW_SHARED_RESOURCE_METER, ids_array, pdr->qerids_num, port);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to bind shared meters to port");
 		return result;
@@ -152,13 +206,11 @@ static doca_error_t upf_accel_shared_meters_dev_domain_init(struct upf_accel_ctx
  * Init shared meters level - one for each port and for each domain
  *
  * @upf_accel_ctx [in]: UPF Acceleration context.
- * @meter_idx [in]: meter index.
- * @qer [in]: UPF qer
+ * @pdr [in]: UPF PDR
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t upf_accel_shared_meters_level_init(struct upf_accel_ctx *upf_accel_ctx,
-						       uint32_t meter_idx,
-						       const struct upf_accel_qer *qer)
+						       const struct upf_accel_pdr *pdr)
 {
 	struct doca_flow_shared_resource_cfg cfg = {.meter_cfg = {.limit_type = DOCA_FLOW_METER_LIMIT_TYPE_BYTES,
 								  .color_mode = DOCA_FLOW_METER_COLOR_MODE_BLIND,
@@ -167,31 +219,8 @@ static doca_error_t upf_accel_shared_meters_level_init(struct upf_accel_ctx *upf
 	enum upf_accel_port port_id;
 	doca_error_t result;
 
-	if (meter_idx >= upf_accel_ctx->upf_accel_cfg->qers->num_qers) {
-		DOCA_LOG_ERR("Failed to init DOCA shared meters meter idx > amount of meter tables");
-		return DOCA_ERROR_INVALID_VALUE;
-	}
-
 	for (port_id = 0; port_id < upf_accel_ctx->num_ports; port_id++) {
-		result = upf_accel_shared_meters_dev_domain_init(upf_accel_ctx,
-								 &cfg,
-								 qer,
-								 port_id,
-								 DOCA_FLOW_PIPE_DOMAIN_DEFAULT,
-								 meter_idx);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to init DOCA shared meters port %u rx: %s",
-				     port_id,
-				     doca_error_get_descr(result));
-			return result;
-		}
-
-		result = upf_accel_shared_meters_dev_domain_init(upf_accel_ctx,
-								 &cfg,
-								 qer,
-								 port_id,
-								 DOCA_FLOW_PIPE_DOMAIN_EGRESS,
-								 meter_idx);
+		result = upf_accel_shared_meters_dev_init(upf_accel_ctx, &cfg, pdr, port_id);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to init DOCA shared meters port %u tx: %s",
 				     port_id,
@@ -204,26 +233,6 @@ static doca_error_t upf_accel_shared_meters_level_init(struct upf_accel_ctx *upf
 }
 
 /*
- * Comparison function for uint32_t numbers
- *
- * @a [in]: first number
- * @b [in]: second number
- * @return: 0 if equal, -1 if (a < b) and 1 otherwise
- */
-static int compare_func(const void *a, const void *b)
-{
-	uint32_t a_ = *((uint32_t *)a);
-	uint32_t b_ = *((uint32_t *)b);
-
-	if (a_ == b_)
-		return 0;
-	else if (a_ < b_)
-		return -1;
-	else
-		return 1;
-}
-
-/*
  * Init all shared meters level
  *
  * @upf_accel_ctx [in]: UPF Acceleration context.
@@ -231,50 +240,21 @@ static int compare_func(const void *a, const void *b)
  */
 static doca_error_t upf_accel_shared_meters_init(struct upf_accel_ctx *upf_accel_ctx)
 {
-	const struct upf_accel_qers *qers = upf_accel_ctx->upf_accel_cfg->qers;
 	struct upf_accel_pdrs *pdrs = upf_accel_ctx->upf_accel_cfg->pdrs;
-	const size_t num_pdrs = pdrs->num_pdrs;
-	const size_t num_qers = qers->num_qers;
-	const struct upf_accel_qer *qer;
-	struct upf_accel_pdr *pdr;
-	uint32_t meter_idx = 0;
+	const struct upf_accel_pdr *pdr;
 	doca_error_t result;
 	uint32_t pdr_idx;
-	uint32_t qer_idx;
-	uint32_t i;
 
-	for (qer_idx = 0; qer_idx < num_qers; qer_idx++) {
-		qer = &qers->arr_qers[qer_idx];
+	for (pdr_idx = 0; pdr_idx < pdrs->num_pdrs; ++pdr_idx) {
+		pdr = &pdrs->arr_pdrs[pdr_idx];
 
-		result = upf_accel_shared_meters_level_init(upf_accel_ctx, meter_idx, qer);
+		result = upf_accel_shared_meters_level_init(upf_accel_ctx, pdr);
 		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to init DOCA shared meters of qer %u: %s",
-				     qer_idx,
+			DOCA_LOG_ERR("Failed to init DOCA shared meters of pdr %u: %s",
+				     pdr_idx,
 				     doca_error_get_descr(result));
 			return result;
 		}
-
-		for (pdr_idx = 0; pdr_idx < num_pdrs; pdr_idx++) {
-			pdr = &pdrs->arr_pdrs[pdr_idx];
-
-			assert(pdr->qerids_num <= num_qers);
-
-			for (i = 0; i < pdr->qerids_num; ++i) {
-				if (pdr->qerids[i] == qer->id)
-					pdr->qer_meter_tbl_idxs[i] = meter_idx;
-			}
-
-			/* We need it to be sorted so that we can insert rules into the Routers tables
-			 * in the correct order starting from the first one in ascending order.
-			 * For example, for qer_meter_tbl_idxs=[1,3], we will add the following rules
-			 * in the Routers tables:
-			 * 1) In Router[0]: fwd to Meter[1]
-			 * 2) In Router[2]: fwd to Meter[3]
-			 */
-			qsort(pdr->qer_meter_tbl_idxs, pdr->qerids_num, sizeof(uint32_t), compare_func);
-		}
-
-		meter_idx++;
 	}
 
 	return DOCA_SUCCESS;
@@ -422,128 +402,44 @@ static doca_error_t upf_accel_tx_counters_insert(struct upf_accel_ctx *upf_accel
 }
 
 /*
- * Insert entry to the both domains routers pipe
- *
- * @upf_accel_ctx [in]: UPF Acceleration context
- * @pdr_id [in]: PDR ID
- * @meter_pipe_idx [in]: meter pipe idx to forward to (or UPF_ACCEL_INVALID_METER_IDX for the last pipe)
- * @router_idx [in]: router pipe idx to insert rule into
- * @port_id [in]: port ID
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t pipe_router_common_insert(struct upf_accel_ctx *upf_accel_ctx,
-					      const int pdr_id,
-					      const int meter_pipe_idx,
-					      const uint32_t router_idx,
-					      const enum upf_accel_port port_id)
-{
-	struct doca_flow_match match = {.meta.pkt_meta = DOCA_HTOBE32(pdr_id)};
-	struct doca_flow_fwd fwd = {.type = DOCA_FLOW_FWD_PIPE};
-	struct upf_accel_entry_cfg entry_cfg =
-		{.match = &match, .fwd = &fwd, .action = NULL, .mon = NULL, .entry_idx = pdr_id, .port_id = port_id};
-	int next_pipe_idx;
-
-	entry_cfg.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT;
-	entry_cfg.pipe = upf_accel_ctx->pipes[entry_cfg.port_id][UPF_ACCEL_PIPE_RX_ROUTER_START + router_idx];
-
-	next_pipe_idx = (meter_pipe_idx == UPF_ACCEL_INVALID_METER_IDX) ?
-				UPF_ACCEL_PIPE_FAR :
-				UPF_ACCEL_PIPE_RX_SHARED_METERS_START + meter_pipe_idx;
-	fwd.next_pipe = upf_accel_ctx->pipes[entry_cfg.port_id][next_pipe_idx];
-
-	if (pipe_pdr_insert(upf_accel_ctx, &entry_cfg, NULL)) {
-		DOCA_LOG_ERR("Failed to insert p%d rx router %u entry: %u", port_id, router_idx, pdr_id);
-		return -1;
-	}
-
-	entry_cfg.domain = DOCA_FLOW_PIPE_DOMAIN_EGRESS;
-	entry_cfg.pipe = upf_accel_ctx->pipes[entry_cfg.port_id][UPF_ACCEL_PIPE_TX_ROUTER_START + router_idx];
-
-	next_pipe_idx = (meter_pipe_idx == UPF_ACCEL_INVALID_METER_IDX) ?
-				UPF_ACCEL_PIPE_TX_COUNTER :
-				UPF_ACCEL_PIPE_TX_SHARED_METERS_START + meter_pipe_idx;
-	fwd.next_pipe = upf_accel_ctx->pipes[entry_cfg.port_id][next_pipe_idx];
-
-	if (pipe_pdr_insert(upf_accel_ctx, &entry_cfg, NULL)) {
-		DOCA_LOG_ERR("Failed to insert p%d tx router %u entry: %u", port_id, router_idx, pdr_id);
-		return -1;
-	}
-
-	return DOCA_SUCCESS;
-}
-
-/*
- * Insert entry to the both directions and both domains routers pipes
- *
- * @upf_accel_ctx [in]: UPF Acceleration context.
- * @pdr_id [in]: PDR ID.
- * @meter_pipe_idx [in]: meter pipe idx to forward to (or UPF_ACCEL_INVALID_METER_IDX for the last pipe)
- * @router_idx [in]: router pipe idx to insert rule into
- * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
- */
-static doca_error_t pipe_router_insert(struct upf_accel_ctx *upf_accel_ctx,
-				       const int pdr_id,
-				       const uint32_t meter_pipe_idx,
-				       const uint32_t router_idx)
-{
-	enum upf_accel_port port_id;
-	doca_error_t result;
-
-	for (port_id = 0; port_id < upf_accel_ctx->num_ports; port_id++) {
-		result = pipe_router_common_insert(upf_accel_ctx, pdr_id, meter_pipe_idx, router_idx, port_id);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to insert PDR rule to port %u router tables: %s",
-				     port_id,
-				     doca_error_get_descr(result));
-			return result;
-		}
-	}
-
-	return DOCA_SUCCESS;
-}
-
-/*
  * Insert entry to the shared meters pipe
  *
  * @upf_accel_ctx [in]: UPF Acceleration context.
  * @pdr_idx [in]: index of PDR in the PDRs array.
- * @pdr_id [in]: PDR ID.
- * @meter_pipe_idx [in]: meter pipe idx.
+ * @qer_idx [in]: index of QER in the PDR's QERs array.
  * @port_id [in]: port ID .
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t pipe_shared_meter_common_insert(struct upf_accel_ctx *upf_accel_ctx,
 						    uint32_t pdr_idx,
-						    int pdr_id,
-						    uint32_t meter_pipe_idx,
+						    uint32_t qer_idx,
 						    enum upf_accel_port port_id)
 {
-	struct doca_flow_monitor mon = {.meter_type = DOCA_FLOW_RESOURCE_TYPE_SHARED};
-	struct doca_flow_match match = {.meta.pkt_meta = DOCA_HTOBE32(pdr_id)};
-	struct upf_accel_entry_cfg entry_cfg =
-		{.match = &match, .fwd = NULL, .action = NULL, .mon = &mon, .entry_idx = pdr_id, .port_id = port_id};
+	const struct upf_accel_pdrs *pdrs = upf_accel_ctx->upf_accel_cfg->pdrs;
+	const struct upf_accel_pdr *pdr = &pdrs->arr_pdrs[pdr_idx];
+	struct doca_flow_match match = {.meta.pkt_meta = DOCA_HTOBE32(pdr->id)};
+	struct doca_flow_monitor mon = {
+		.meter_type = DOCA_FLOW_RESOURCE_TYPE_SHARED,
+	};
+	struct doca_flow_fwd fwd = {
+		.type = DOCA_FLOW_FWD_PIPE,
+		.next_pipe = qer_idx == (pdr->qerids_num - 1) ?
+				     upf_accel_ctx->pipes[port_id][UPF_ACCEL_PIPE_TX_COLOR_MATCH_NO_MORE_METERS] :
+				     upf_accel_ctx->pipes[port_id][UPF_ACCEL_PIPE_TX_COLOR_MATCH_START + qer_idx]};
+	struct upf_accel_entry_cfg entry_cfg = {
+		.domain = DOCA_FLOW_PIPE_DOMAIN_EGRESS,
+		.pipe = upf_accel_ctx->pipes[port_id][UPF_ACCEL_PIPE_TX_SHARED_METERS_START + qer_idx],
+		.match = &match,
+		.fwd = &fwd,
+		.action = NULL,
+		.mon = &mon,
+		.entry_idx = pdr->id,
+		.port_id = port_id};
 
-	entry_cfg.domain = DOCA_FLOW_PIPE_DOMAIN_DEFAULT;
-	entry_cfg.pipe =
-		upf_accel_ctx->pipes[entry_cfg.port_id][UPF_ACCEL_PIPE_RX_SHARED_METERS_START + meter_pipe_idx];
-
-	mon.shared_meter.shared_meter_id =
-		pdr_idx + upf_accel_shared_meters_table_offset_get(port_id, entry_cfg.domain, meter_pipe_idx);
+	mon.shared_meter.shared_meter_id = upf_accel_shared_meters_table_offset_get(port_id, pdr_idx, qer_idx);
 
 	if (pipe_pdr_insert(upf_accel_ctx, &entry_cfg, NULL)) {
-		DOCA_LOG_ERR("Failed to insert p%d rx meter %u entry: %u", port_id, meter_pipe_idx, pdr_id);
-		return -1;
-	}
-
-	entry_cfg.domain = DOCA_FLOW_PIPE_DOMAIN_EGRESS;
-	entry_cfg.pipe =
-		upf_accel_ctx->pipes[entry_cfg.port_id][UPF_ACCEL_PIPE_TX_SHARED_METERS_START + meter_pipe_idx];
-
-	mon.shared_meter.shared_meter_id =
-		pdr_idx + upf_accel_shared_meters_table_offset_get(port_id, entry_cfg.domain, meter_pipe_idx);
-
-	if (pipe_pdr_insert(upf_accel_ctx, &entry_cfg, NULL)) {
-		DOCA_LOG_ERR("Failed to insert p%d tx meter %u entry: %u", port_id, meter_pipe_idx, pdr_id);
+		DOCA_LOG_ERR("Failed to insert p%d tx meter %u entry: %u", port_id, qer_idx, pdr->id);
 		return -1;
 	}
 
@@ -555,20 +451,16 @@ static doca_error_t pipe_shared_meter_common_insert(struct upf_accel_ctx *upf_ac
  *
  * @upf_accel_ctx [in]: UPF Acceleration context.
  * @pdr_idx [in]: index of PDR in the PDRs array.
- * @pdr_id [in]: PDR ID.
- * @meter_pipe_idx [in]: meter pipe idx.
+ * @qer_idx [in]: index of QER in the PDR's QERs array.
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-static doca_error_t pipe_shared_meter_insert(struct upf_accel_ctx *upf_accel_ctx,
-					     uint32_t pdr_idx,
-					     int pdr_id,
-					     uint32_t meter_pipe_idx)
+static doca_error_t pipe_shared_meter_insert(struct upf_accel_ctx *upf_accel_ctx, uint32_t pdr_idx, uint32_t qer_idx)
 {
 	enum upf_accel_port port_id;
 	doca_error_t result;
 
 	for (port_id = 0; port_id < upf_accel_ctx->num_ports; port_id++) {
-		result = pipe_shared_meter_common_insert(upf_accel_ctx, pdr_idx, pdr_id, meter_pipe_idx, port_id);
+		result = pipe_shared_meter_common_insert(upf_accel_ctx, pdr_idx, qer_idx, port_id);
 		if (result != DOCA_SUCCESS) {
 			DOCA_LOG_ERR("Failed to insert PDR rule to port %u meter tables: %s",
 				     port_id,
@@ -590,9 +482,8 @@ static doca_error_t upf_accel_smf_rules_add(struct upf_accel_ctx *upf_accel_ctx)
 	const struct upf_accel_pdrs *pdrs = upf_accel_ctx->upf_accel_cfg->pdrs;
 	const size_t num_pdrs = pdrs->num_pdrs;
 	const struct upf_accel_pdr *pdr;
+	struct upf_accel_qer *qer;
 	doca_error_t result;
-	uint32_t router_idx;
-	uint32_t meter_idx;
 	uint32_t pdr_idx;
 	uint32_t far_id;
 	uint8_t qfi;
@@ -605,9 +496,12 @@ static doca_error_t upf_accel_smf_rules_add(struct upf_accel_ctx *upf_accel_ctx)
 		pdr_id = pdr->id;
 		qfi = UPF_ACCEL_QFI_NONE;
 
-		if (pdr->qerids_num)
+		if (pdr->qerids_num) {
 			/* QFI is chosen randomly since different QERs might have different QFI values */
-			qfi = upf_accel_ctx->upf_accel_cfg->qers->arr_qers[pdr->qerids[pdr->qerids_num - 1]].qfi;
+			qer = upf_accel_get_qer_by_qer_id(upf_accel_ctx->upf_accel_cfg->qers,
+							  pdr->qerids[pdr->qerids_num - 1]);
+			qfi = qer->qfi;
+		}
 
 		result = upf_accel_tx_counters_insert(upf_accel_ctx,
 						      pdr_idx,
@@ -619,23 +513,8 @@ static doca_error_t upf_accel_smf_rules_add(struct upf_accel_ctx *upf_accel_ctx)
 		if (result != DOCA_SUCCESS)
 			return result;
 
-		router_idx = 0;
 		for (i = 0; i < pdr->qerids_num; ++i) {
-			meter_idx = pdr->qer_meter_tbl_idxs[i];
-
-			result = pipe_shared_meter_insert(upf_accel_ctx, pdr_idx, pdr_id, meter_idx);
-			if (result != DOCA_SUCCESS)
-				return result;
-
-			result = pipe_router_insert(upf_accel_ctx, pdr_id, meter_idx, router_idx);
-			if (result != DOCA_SUCCESS)
-				return result;
-
-			router_idx = meter_idx + 1;
-		}
-
-		if (router_idx < upf_accel_ctx->upf_accel_cfg->qers->num_qers) {
-			result = pipe_router_insert(upf_accel_ctx, pdr_id, UPF_ACCEL_INVALID_METER_IDX, router_idx);
+			result = pipe_shared_meter_insert(upf_accel_ctx, pdr_idx, i);
 			if (result != DOCA_SUCCESS)
 				return result;
 		}
@@ -740,7 +619,7 @@ static uint32_t calculate_hash_table_size(uint16_t num_cores)
  */
 static doca_error_t upf_accel_init_quota_counters(struct upf_accel_ctx *upf_accel_ctx)
 {
-	struct doca_flow_shared_resource_cfg cfg = {.domain = DOCA_FLOW_PIPE_DOMAIN_EGRESS};
+	struct doca_flow_shared_resource_cfg cfg = {0};
 	struct app_shared_counter_ids shared_counter_ids;
 	enum upf_accel_port port_id;
 	doca_error_t result;
@@ -865,8 +744,8 @@ static doca_error_t upf_accel_fp_data_init(struct upf_accel_ctx *ctx, struct upf
 			goto cleanup;
 		}
 
-		/* The remainder is distributed among the first cores so that it is almost evenly distributed */
 		num_cntrs = quota_cntrs_per_core_num;
+		/* The remainder is distributed among the first cores so that it is almost evenly distributed */
 		if (quota_cntrs_remainder_num) {
 			num_cntrs++;
 			quota_cntrs_remainder_num--;
@@ -885,8 +764,8 @@ static doca_error_t upf_accel_fp_data_init(struct upf_accel_ctx *ctx, struct upf
 		fp_data->ctx = ctx;
 		fp_data->queue_id = queue_id++;
 
-		upf_accel_sw_aging_ll_init(fp_data, PKT_DIR_RAN);
-		upf_accel_sw_aging_ll_init(fp_data, PKT_DIR_WAN);
+		upf_accel_sw_aging_ll_init(fp_data, PARSER_PKT_TYPE_TUNNELED);
+		upf_accel_sw_aging_ll_init(fp_data, PARSER_PKT_TYPE_PLAIN);
 
 		DOCA_LOG_DBG("FP core %u data initialized", lcore);
 	}
@@ -969,14 +848,14 @@ static void upf_accel_fp_accel_counters_print(struct upf_accel_fp_data *fp_data_
 	{
 		fp_data = &fp_data_arr[lcore];
 		if (strcmp(name, "ACCELERATED") == 0) {
-			ran_counters = &fp_data->accel_counters[PKT_DIR_RAN];
-			wan_counters = &fp_data->accel_counters[PKT_DIR_WAN];
+			ran_counters = &fp_data->accel_counters[PARSER_PKT_TYPE_TUNNELED];
+			wan_counters = &fp_data->accel_counters[PARSER_PKT_TYPE_PLAIN];
 		} else if (strcmp(name, "NOT ACCELERATED") == 0) {
-			ran_counters = &fp_data->unaccel_counters[PKT_DIR_RAN];
-			wan_counters = &fp_data->unaccel_counters[PKT_DIR_WAN];
+			ran_counters = &fp_data->unaccel_counters[PARSER_PKT_TYPE_TUNNELED];
+			wan_counters = &fp_data->unaccel_counters[PARSER_PKT_TYPE_PLAIN];
 		} else if (strcmp(name, "ACCELERATION FAILED") == 0) {
-			ran_counters = &fp_data->accel_failed_counters[PKT_DIR_RAN];
-			wan_counters = &fp_data->accel_failed_counters[PKT_DIR_WAN];
+			ran_counters = &fp_data->accel_failed_counters[PARSER_PKT_TYPE_TUNNELED];
+			wan_counters = &fp_data->accel_failed_counters[PARSER_PKT_TYPE_PLAIN];
 		} else {
 			DOCA_LOG_ERR("Unknowon counters name");
 			return;
@@ -1226,7 +1105,9 @@ static int upf_accel_fp_loop_wrapper(void *param)
  */
 static inline int upf_accel_calc_num_shared_meters(uint16_t num_ports)
 {
-	return (1 + UPF_ACCEL_MAX_NUM_DOMAIN_METERS) * UPF_ACCEL_NUM_DOMAINS_PER_PORT * num_ports;
+	return upf_accel_shared_meters_table_offset_get(num_ports,
+							UPF_ACCEL_MAX_NUM_PDR,
+							UPF_ACCEL_MAX_PDR_NUM_RATE_METERS);
 }
 
 /*
@@ -1342,7 +1223,6 @@ static doca_error_t init_upf_accel(struct upf_accel_ctx *upf_accel_ctx, struct u
 
 	for (port_id = 0; port_id < upf_accel_ctx->num_ports; port_id++) {
 		ctrl_status = &upf_accel_ctx->static_entry_ctx[port_id].static_ctx.ctrl_status;
-		upf_accel_ctx->static_entry_ctx[port_id].type = UPF_ACCEL_RULE_STATIC;
 
 		result = doca_flow_entries_process(upf_accel_ctx->ports[port_id],
 						   0,
@@ -1681,6 +1561,7 @@ int main(int argc, char **argv)
 	};
 	struct upf_accel_fp_data *fp_data_arr = NULL;
 	struct upf_accel_ctx upf_accel_ctx = {0};
+	enum upf_accel_port port_id;
 
 	/* Register a logger backend */
 	result = doca_log_backend_create_standard();
@@ -1697,7 +1578,7 @@ int main(int argc, char **argv)
 
 	DOCA_LOG_INFO("Starting UPF Acceleration app pid %d", getpid());
 
-	result = doca_argp_init("doca_upf_accel", &upf_accel_cfg);
+	result = doca_argp_init(NULL, &upf_accel_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		goto upf_accel_exit;
@@ -1754,6 +1635,9 @@ int main(int argc, char **argv)
 	upf_accel_ctx.get_fwd_port = (upf_accel_ctx.num_ports == 1) ? upf_accel_single_port_get_fwd_port :
 								      upf_accel_get_opposite_port;
 	upf_accel_ctx.upf_accel_cfg = &upf_accel_cfg;
+	for (port_id = 0; port_id < upf_accel_ctx.num_ports; port_id++) {
+		upf_accel_ctx.static_entry_ctx[port_id].type = UPF_ACCEL_RULE_STATIC;
+	}
 
 	result = init_upf_accel(&upf_accel_ctx, &fp_data_arr);
 	if (result != DOCA_SUCCESS) {

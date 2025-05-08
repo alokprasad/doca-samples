@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -26,10 +26,12 @@
 #include <ctype.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+
 #include <fstream>
-#include <sstream>
-#include <json-c/json.h>
 #include <functional>
+#include <sstream>
+
+#include <json-c/json.h>
 
 #include <rte_hash_crc.h>
 
@@ -43,7 +45,7 @@
 
 DOCA_LOG_REGISTER(PSP_Gateway_Params);
 
-doca_flow_ip_addr interface_vf_addr; //!< The VF's interface IPv4 address extracted via "--vf-name" param
+doca_flow_ip_addr interface_vf_addr; /* The VF's interface IPv4 address extracted via "--vf-name" param */
 
 /* JSON parsing callback */
 using psp_parse_json_object_cb = std::function<doca_error_t(json_object *, psp_gw_app_config *, std::vector<void *> &)>;
@@ -52,7 +54,7 @@ using psp_parse_json_object_cb = std::function<doca_error_t(json_object *, psp_g
 struct psp_json_field_handler {
 	const std::string key;		    /* JSON key */
 	psp_parse_json_object_cb parser_cb; /* JSON parsing callback */
-	bool required;			    /* Is the field required */
+	bool required;			    /* Is the field required? */
 	bool found;			    /* Has the field been found - internal use */
 	std::vector<void *> params;	    /* Additional parameters to pass to the callback */
 	/* Constructor */
@@ -100,7 +102,7 @@ static doca_error_t create_ip6_table(psp_gw_app_config *app_config)
  *
  * @param [in]: the dst mac addr
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_pci_addr_param(void *param, void *config)
 {
@@ -109,7 +111,7 @@ static doca_error_t handle_pci_addr_param(void *param, void *config)
 
 	int pci_addr_len = strlen(pci_addr);
 	if (pci_addr_len + 1 != DOCA_DEVINFO_PCI_ADDR_SIZE && pci_addr_len + 1 != DOCA_DEVINFO_PCI_BDF_SIZE) {
-		DOCA_LOG_ERR("Expected PCI addr in DDDD:BB:DD.F or BB:DD.F format");
+		DOCA_LOG_ERR("Expected PCI addr in DDDD:BB:DD.F or BB:DD.F formats, instead received: %s", pci_addr);
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -123,11 +125,11 @@ static doca_error_t handle_pci_addr_param(void *param, void *config)
 }
 
 /**
- * @brief Configures the dst-mac to apply on decap
+ * @brief Configures the device representors parameter
  *
- * @param [in]: the dst mac addr
+ * @param [in]: the device representors string
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_repr_param(void *param, void *config)
 {
@@ -140,11 +142,11 @@ static doca_error_t handle_repr_param(void *param, void *config)
 }
 
 /**
- * @brief Configures the DPDK eal_init Core mask parameter
+ * @brief Configures the DPDK eal_init core mask parameter
  *
  * @param [in]: the core mask string
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_core_mask_param(void *param, void *config)
 {
@@ -161,7 +163,7 @@ static doca_error_t handle_core_mask_param(void *param, void *config)
  *
  * @param [in]: the dst mac addr
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_decap_dmac_param(void *param, void *config)
 {
@@ -174,7 +176,7 @@ static doca_error_t handle_decap_dmac_param(void *param, void *config)
 	}
 
 	if (rte_ether_unformat_addr(mac_addr, &app_config->dcap_dmac) != 0) {
-		DOCA_LOG_ERR("Malformed mac addr: %s", mac_addr);
+		DOCA_LOG_ERR("Malformed MAC addr: %s", mac_addr);
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -187,7 +189,7 @@ static doca_error_t handle_decap_dmac_param(void *param, void *config)
  *
  * @param [in]: the dst mac addr
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_nexthop_dmac_param(void *param, void *config)
 {
@@ -195,7 +197,7 @@ static doca_error_t handle_nexthop_dmac_param(void *param, void *config)
 	char *mac_addr = (char *)param;
 
 	if (rte_ether_unformat_addr(mac_addr, &app_config->nexthop_dmac) != 0) {
-		DOCA_LOG_ERR("Malformed mac addr: %s", mac_addr);
+		DOCA_LOG_ERR("Malformed MAC addr: %s", mac_addr);
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -210,7 +212,7 @@ static doca_error_t handle_nexthop_dmac_param(void *param, void *config)
  *
  * @ip [in/out]: host string, returned with subnet mask suffix removed (and applied)
  * @mask_len [out]: the subnet mask length if one was found; 32 (single host) otherwise
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_subnet_mask(std::string &ip, uint32_t &mask_len)
 {
@@ -253,7 +255,7 @@ static doca_error_t parse_subnet_mask(std::string &ip, uint32_t &mask_len)
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_vc_param(void *param, void *config)
 {
@@ -269,7 +271,7 @@ static doca_error_t handle_vc_param(void *param, void *config)
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_ingress_acl_param(void *param, void *config)
 {
@@ -285,7 +287,7 @@ static doca_error_t handle_ingress_acl_param(void *param, void *config)
  *
  * @param [in]: The log2 rate; see log2_sample_rate
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_sample_param(void *param, void *config)
 {
@@ -301,7 +303,7 @@ static doca_error_t handle_sample_param(void *param, void *config)
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_static_tunnels_param(void *param, void *config)
 {
@@ -319,14 +321,16 @@ static doca_error_t handle_static_tunnels_param(void *param, void *config)
  *
  * @param [in]: A pointer to the parameter
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_max_tunnels_param(void *param, void *config)
 {
 	auto *app_config = (struct psp_gw_app_config *)config;
 	int *int_param = (int *)param;
 	if (*int_param < 1) {
-		DOCA_LOG_ERR("The max-tunnels cannot be less than one");
+		DOCA_LOG_ERR(
+			"The maximal number of tunnel (max-tunnels) must be greater than zero, instead received: %d",
+			*int_param);
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -337,19 +341,21 @@ static doca_error_t handle_max_tunnels_param(void *param, void *config)
 }
 
 /**
- * @brief Configures the PSP crypt-offset, the number of words in
- * the packet header transmitted as cleartext.
+ * @brief Configures the PSP crypt-offset.
+ *
+ * The offset determines the number of words (4-byte chunks) in
+ * the packet header that will be transmitted as cleartext.
  *
  * @param [in]: A pointer to the parameter
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_psp_crypt_offset_param(void *param, void *config)
 {
 	auto *app_config = (struct psp_gw_app_config *)config;
 	int *int_param = (int *)param;
-	if (*int_param < 0 || *int_param > 0x3f) {
-		DOCA_LOG_ERR("PSP crypt-offset must be a 6-bit integer");
+	if (*int_param < 0 || 0x3f < *int_param) {
+		DOCA_LOG_ERR("PSP crypt-offset must be a 6-bit non-negative integer, instead received: %d", *int_param);
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -364,7 +370,7 @@ static doca_error_t handle_psp_crypt_offset_param(void *param, void *config)
  *
  * @param [in]: A pointer to the parameter
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_psp_version_param(void *param, void *config)
 {
@@ -382,11 +388,11 @@ static doca_error_t handle_psp_version_param(void *param, void *config)
 }
 
 /**
- * @brief Indicates the application should log all encryption keys
+ * @brief Indicates the application should log all encryption keys.
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_debug_keys_param(void *param, void *config)
 {
@@ -401,11 +407,12 @@ static doca_error_t handle_debug_keys_param(void *param, void *config)
 
 /**
  * @brief Indicates the name of the netdev used as the unsecured port.
- * From this, derive the MAC and IP addresses.
+ *
+ * The MAC and IP addresses will be derived from this interface.
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_vf_name_param(void *param, void *config)
 {
@@ -450,7 +457,7 @@ static doca_error_t handle_vf_name_param(void *param, void *config)
 	app_config->dcap_dmac = *(rte_ether_addr *)ifr.ifr_hwaddr.sa_data;
 	close(sockfd);
 
-	DOCA_LOG_INFO("For VF device %s, detected IP addr %s, mac addr %s",
+	DOCA_LOG_INFO("For VF device %s, detected IP addr %s, MAC addr %s",
 		      vf_iface_name.c_str(),
 		      ip_to_string(interface_vf_addr).c_str(),
 		      mac_to_string(app_config->dcap_dmac).c_str());
@@ -459,11 +466,11 @@ static doca_error_t handle_vf_name_param(void *param, void *config)
 }
 
 /**
- * @brief Indicates wherever statistics should be printed
+ * @brief Indicates whether statistics should be printed.
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_stats_print_param(void *param, void *config)
 {
@@ -475,7 +482,7 @@ static doca_error_t handle_stats_print_param(void *param, void *config)
 }
 
 /**
- * @brief returns supported perf types as a string
+ * @brief Returns supported perf types as a string.
  *
  * @supported_types [out]: string to store supported types
  */
@@ -489,11 +496,11 @@ static void get_supported_perf_types(std::string &supported_types)
 }
 
 /**
- * @brief indicates what performance printing should be enabled
+ * @brief Indicates what performance printing should be enabled.
  *
- * @param [in]: A pointer to a string types: key-gen, insertion
+ * @param [in]: A pointer to a string of performance type: key-gen, insertion
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_perf_print_param(void *param, void *config)
 {
@@ -505,7 +512,7 @@ static doca_error_t handle_perf_print_param(void *param, void *config)
 		if (PSP_PERF_MAP.count(perf_type) == 0) {
 			std::string supported_types;
 			get_supported_perf_types(supported_types);
-			DOCA_LOG_ERR("Unsupported perf type: %s, supported types: %s",
+			DOCA_LOG_ERR("Unsupported perf type: %s, supported types are: %s",
 				     perf_type.c_str(),
 				     supported_types.c_str());
 			return DOCA_ERROR_INVALID_VALUE;
@@ -517,11 +524,11 @@ static doca_error_t handle_perf_print_param(void *param, void *config)
 }
 
 /**
- * @brief Indicates the application should log all packets received to RSS
+ * @brief Indicates the application should log all received packets to RSS.
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_show_rss_rx_packets_param(void *param, void *config)
 {
@@ -530,17 +537,17 @@ static doca_error_t handle_show_rss_rx_packets_param(void *param, void *config)
 	app_config->show_rss_rx_packets = *bool_param;
 	if (*bool_param) {
 		DOCA_LOG_INFO(
-			"NOTE: show_rss_rx_packets is enabled; rx packets received to RSS will be written to logs.");
+			"NOTE: show_rss_rx_packets is enabled; rx packets received to RSS will be written to logs");
 	}
 	return DOCA_SUCCESS;
 }
 
 /**
- * @brief Indicates if the application should maintain the order of original packet
+ * @brief Indicates if the application should maintain the order of original packets.
  *
  * @param [in]: A pointer to a boolean flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_maintain_order_param(void *param, void *config)
 {
@@ -548,17 +555,17 @@ static doca_error_t handle_maintain_order_param(void *param, void *config)
 	bool *bool_param = (bool *)param;
 	app_config->maintain_order = *bool_param;
 	if (*bool_param) {
-		DOCA_LOG_INFO("Maintain order of original packets is enabled");
+		DOCA_LOG_INFO("The original order of the packets will be maintained");
 	}
 	return DOCA_SUCCESS;
 }
 
 /**
- * @brief Handle outer IP type param
+ * @brief Handle outer IP type param.
  *
  * @param [in]: A pointer to a string flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_outer_param(void *param, void *config)
 {
@@ -570,7 +577,7 @@ static doca_error_t handle_outer_param(void *param, void *config)
 	} else if (outer_type == "ipv6") {
 		app_config->outer = DOCA_FLOW_L3_TYPE_IP6;
 	} else {
-		DOCA_LOG_ERR("Unsupported outer type: %s, supported types: ipv4, ipv6", outer_type.c_str());
+		DOCA_LOG_ERR("Unsupported outer type: %s, supported types are: ipv4, ipv6", outer_type.c_str());
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -579,11 +586,11 @@ static doca_error_t handle_outer_param(void *param, void *config)
 }
 
 /**
- * @brief Handle inner IP type param
+ * @brief Handle inner IP type param.
  *
  * @param [in]: A pointer to a string flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_inner_param(void *param, void *config)
 {
@@ -599,7 +606,7 @@ static doca_error_t handle_inner_param(void *param, void *config)
 		}
 		app_config->inner = DOCA_FLOW_L3_TYPE_IP6;
 	} else {
-		DOCA_LOG_ERR("Unsupported inner type: %s, supported types: ipv4, ipv6", inner_type.c_str());
+		DOCA_LOG_ERR("Unsupported inner type: %s, supported types are: ipv4, ipv6", inner_type.c_str());
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -608,11 +615,11 @@ static doca_error_t handle_inner_param(void *param, void *config)
 }
 
 /**
- * @brief Handle the mode param
+ * @brief Handle the mode param.
  *
  * @param [in]: A pointer to a string flag
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_mode_param(void *param, void *config)
 {
@@ -624,7 +631,7 @@ static doca_error_t handle_mode_param(void *param, void *config)
 	} else if (mode == "transport") {
 		app_config->mode = PSP_GW_MODE_TRANSPORT;
 	} else {
-		DOCA_LOG_ERR("Unsupported mode: %s, supported modes: tunnel, transport", mode.c_str());
+		DOCA_LOG_ERR("Unsupported mode: %s, supported modes are: tunnel, transport", mode.c_str());
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
@@ -633,11 +640,11 @@ static doca_error_t handle_mode_param(void *param, void *config)
 }
 
 /**
- * @brief Configures the JSON config file path
+ * @brief Configures the JSON config file path.
  *
  * @param [in]: A pointer to the JSON file path
  * @config [in/out]: A void pointer to the application config struct
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_config_file_param(void *param, void *config)
 {
@@ -649,7 +656,7 @@ static doca_error_t handle_config_file_param(void *param, void *config)
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 	if (access(json_path.c_str(), F_OK) == -1) {
-		DOCA_LOG_ERR("JSON file was not found %s", json_path.c_str());
+		DOCA_LOG_ERR("JSON file was not found: %s", json_path.c_str());
 		return DOCA_ERROR_NOT_FOUND;
 	}
 	app_config->json_path = json_path;
@@ -660,11 +667,11 @@ static doca_error_t handle_config_file_param(void *param, void *config)
 /* --------------------- JSON Parsing --------------------- */
 
 /**
- * @brief Verifies and extract the string from json object
+ * @brief Verifies and extracts the string from the json object.
  *
  * @json_obj [in]: json object
  * @value [out]: string value to extract
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t json_object_ver_get_string(json_object *json_obj, std::string &value)
 {
@@ -677,13 +684,13 @@ static doca_error_t json_object_ver_get_string(json_object *json_obj, std::strin
 }
 
 /**
- * @brief Verifies and extract the array length from json object
+ * @brief Verifies and extracts the array length from the json object.
+ *
+ * @NOTE: Does not return the array itself, only the length.
  *
  * @json_obj [in]: json object
  * @length [out]: array length to extract
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
- *
- * @NOTE: Does not return the array itself, only the length.
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t json_object_ver_array_length(json_object *json_obj, int &length)
 {
@@ -696,12 +703,12 @@ static doca_error_t json_object_ver_array_length(json_object *json_obj, int &len
 }
 
 /**
- * @brief Handles a JSON object with all his keys
+ * @brief Handles a JSON object with all of its keys.
  *
  * @handlers [in]: JSON handlers (expected keys and handlers)
  * @json_obj [in]: JSON object
  * @app_config [in/out]: Application config
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t handle_json_level_fields(psp_json_field_handlers &handlers,
 					     json_object *json_obj,
@@ -709,14 +716,13 @@ static doca_error_t handle_json_level_fields(psp_json_field_handlers &handlers,
 {
 	doca_error_t result = DOCA_SUCCESS;
 
-	// verify object is a JSON object
+	/* verify object is a JSON object */
 	if (!json_object_is_type(json_obj, json_type_object)) {
 		DOCA_LOG_ERR("Invalid JSON object type: %d, expected object", json_object_get_type(json_obj));
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 
-	// Note that json parser will erase randomly any duplicated key, so this is not checked. it is up to user to
-	// ensure
+	/* Note that json parser will randomly erase duplicate keys, so this is up to the user to ensure */
 	json_object_object_foreach(json_obj, key, val)
 	{
 		bool found = false;
@@ -749,12 +755,12 @@ static doca_error_t handle_json_level_fields(psp_json_field_handlers &handlers,
 }
 
 /**
- * @brief Parse the local gRPC address
+ * @brief Parse the local gRPC address.
  *
  * @json_obj_local_addr [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_local_grpc_address(json_object *json_obj_local_addr,
 					     psp_gw_app_config *app_config,
@@ -782,7 +788,7 @@ static doca_error_t parse_local_grpc_address(json_object *json_obj_local_addr,
 			return DOCA_ERROR_INVALID_VALUE;
 		}
 		int port_num = std::stoi(port);
-		if (port_num < 0 || port_num > 65535) {
+		if (port_num < 0 || 65535 < port_num) {
 			DOCA_LOG_ERR("Invalid port in local-grpc-address: %s", port.c_str());
 			return DOCA_ERROR_INVALID_VALUE;
 		}
@@ -794,12 +800,12 @@ static doca_error_t parse_local_grpc_address(json_object *json_obj_local_addr,
 }
 
 /**
- * @brief Parses the remote gRPC address
+ * @brief Parses the remote gRPC address.
  *
  * @json_obj_config [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_json_config(json_object *json_obj_config,
 				      psp_gw_app_config *app_config,
@@ -819,12 +825,12 @@ static doca_error_t parse_json_config(json_object *json_obj_config,
 }
 
 /**
- * @brief Parses the remote gRPC address
+ * @brief Parses the remote gRPC address.
  *
  * @json_obj_remote_addr [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_remote_grpc_address(json_object *json_obj_remote_addr,
 					      psp_gw_app_config *app_config,
@@ -845,12 +851,12 @@ static doca_error_t parse_remote_grpc_address(json_object *json_obj_remote_addr,
 }
 
 /**
- * @brief Parses the local VIP
+ * @brief Parses the local VIP.
  *
  * @json_obj_local_vip [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_local_vip(json_object *json_obj_local_vip,
 				    psp_gw_app_config *app_config,
@@ -874,12 +880,12 @@ static doca_error_t parse_local_vip(json_object *json_obj_local_vip,
 }
 
 /**
- * @brief Parses the remote VIPs
+ * @brief Parses the remote VIPs.
  *
  * @json_obj_remote_vips [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_remote_vips(json_object *json_obj_remote_vips,
 				      psp_gw_app_config *app_config,
@@ -977,12 +983,12 @@ static doca_error_t parse_remote_vips(json_object *json_obj_remote_vips,
 }
 
 /**
- * @brief Parses the sessions
+ * @brief Parses the sessions.
  *
  * @json_obj_sessions [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_sessions(json_object *json_obj_sessions,
 				   psp_gw_app_config *app_config,
@@ -1026,7 +1032,7 @@ static doca_error_t parse_sessions(json_object *json_obj_sessions,
 		}
 
 		if (peer->vip_pairs.empty()) {
-			DOCA_LOG_ERR("No remote vips found in JSON file for peer %s", peer->svc_addr.c_str());
+			DOCA_LOG_ERR("No remote vips found in JSON file for peer: %s", peer->svc_addr.c_str());
 			return DOCA_ERROR_INVALID_VALUE;
 		}
 	}
@@ -1035,12 +1041,12 @@ static doca_error_t parse_sessions(json_object *json_obj_sessions,
 }
 
 /**
- * @brief Parses the peers
+ * @brief Parses the peers.
  *
  * @json_obj_peers [in]: JSON object
  * @app_config [in/out]: Application config
  * @params [in/out]: Custom data to pass to the handler
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t parse_json_peers(json_object *json_obj_peers,
 				     psp_gw_app_config *app_config,
@@ -1136,7 +1142,7 @@ doca_error_t psp_gw_parse_config_file(psp_gw_app_config *app_config)
 }
 
 /**
- * @brief Utility function to create a single argp parameter
+ * @brief Utility function to create a single argp parameter.
  *
  * @short_name [in]: The single-letter command-line flag
  * @long_name [in]: The spelled-out command-line flag
@@ -1145,7 +1151,7 @@ doca_error_t psp_gw_parse_config_file(psp_gw_app_config *app_config)
  * @arg_type [in]: How the option string should be parsed
  * @required [in]: Whether the program should terminate if the option is omitted
  * @accept_multiple [in]: Whether the program should accept multiple instances of the option
- * @return: DOCA_SUCCESS on success; DOCA_ERROR otherwise
+ * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
 static doca_error_t psp_gw_register_single_param(const char *short_name,
 						 const char *long_name,
@@ -1421,7 +1427,7 @@ doca_error_t psp_gw_argp_exec(int &argc, char *argv[], psp_gw_app_config *app_co
 	doca_error_t result;
 
 	// Init ARGP interface and start parsing cmdline/json arguments
-	result = doca_argp_init("doca_psp_gateway", app_config);
+	result = doca_argp_init(NULL, app_config);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to init ARGP resources: %s", doca_error_get_descr(result));
 		return result;

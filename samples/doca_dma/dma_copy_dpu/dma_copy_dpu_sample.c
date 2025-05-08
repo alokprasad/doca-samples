@@ -155,9 +155,15 @@ static doca_error_t save_config_info_to_buffers(const char *export_desc_file_pat
  * @export_desc_file_path [in]: Export descriptor file path
  * @buffer_info_file_path [in]: Buffer info file path
  * @pcie_addr [in]: Device PCI address
+ * @num_src_buf [in]: Number of source doca_buf to allocate
+ * @num_dst_buf [in]: Number of destination doca_buf to allocate
  * @return: DOCA_SUCCESS on success and DOCA_ERROR otherwise
  */
-doca_error_t dma_copy_dpu(char *export_desc_file_path, char *buffer_info_file_path, const char *pcie_addr)
+doca_error_t dma_copy_dpu(char *export_desc_file_path,
+			  char *buffer_info_file_path,
+			  const char *pcie_addr,
+			  int num_src_buf,
+			  int num_dst_buf)
 {
 	struct dma_resources resources;
 	struct program_core_objects *state = &resources.state;
@@ -179,7 +185,7 @@ doca_error_t dma_copy_dpu(char *export_desc_file_path, char *buffer_info_file_pa
 	doca_error_t result, tmp_result, task_result;
 
 	/* Allocate resources */
-	result = allocate_dma_resources(pcie_addr, &resources);
+	result = allocate_dma_resources(pcie_addr, num_src_buf + num_dst_buf, &resources);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to allocate DMA resources: %s", doca_error_get_descr(result));
 		return result;
@@ -259,11 +265,13 @@ doca_error_t dma_copy_dpu(char *export_desc_file_path, char *buffer_info_file_pa
 	}
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->buf_inv,
-						    remote_mmap,
-						    remote_addr,
-						    remote_addr_len,
-						    &src_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       remote_mmap,
+				       remote_addr,
+				       remote_addr_len,
+				       num_src_buf,
+				       true,
+				       &src_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing remote buffer: %s",
 			     doca_error_get_descr(result));
@@ -271,23 +279,17 @@ doca_error_t dma_copy_dpu(char *export_desc_file_path, char *buffer_info_file_pa
 	}
 
 	/* Construct DOCA buffer for each address range */
-	result = doca_buf_inventory_buf_get_by_addr(state->buf_inv,
-						    state->dst_mmap,
-						    dpu_buffer,
-						    dst_buffer_size,
-						    &dst_doca_buf);
+	result = allocat_doca_buf_list(state->buf_inv,
+				       state->dst_mmap,
+				       dpu_buffer,
+				       dst_buffer_size,
+				       num_dst_buf,
+				       false,
+				       &dst_doca_buf);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to acquire DOCA buffer representing destination buffer: %s",
 			     doca_error_get_descr(result));
 		goto destroy_src_buf;
-	}
-
-	/* Set data position in src_buff */
-	result = doca_buf_set_data(src_doca_buf, remote_addr, dst_buffer_size);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to set data for DOCA source buffer: %s", doca_error_get_descr(result));
-
-		goto destroy_dst_buf;
 	}
 
 	/* Include result in user data of task to be used in the callbacks */

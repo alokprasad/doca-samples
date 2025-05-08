@@ -121,7 +121,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 
 	/* Initialize argparser */
-	result = doca_argp_init("doca_pcc", &cfg);
+	result = doca_argp_init(NULL, &cfg);
 	if (result != DOCA_SUCCESS) {
 		PRINT_ERROR("Error: Failed to init ARGP resources: %s\n", doca_error_get_descr(result));
 		return EXIT_FAILURE;

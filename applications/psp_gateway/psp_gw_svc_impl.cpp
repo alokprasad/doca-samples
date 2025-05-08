@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
+ * Copyright (c) 2024-2025 NVIDIA CORPORATION AND AFFILIATES.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met:
@@ -24,11 +24,12 @@
  */
 
 #include <arpa/inet.h>
-#include <doca_log.h>
-#include <doca_flow_crypto.h>
 
 #include <grpcpp/client_context.h>
 #include <grpcpp/create_channel.h>
+
+#include <doca_flow_crypto.h>
+#include <doca_log.h>
 
 #include <psp_gw_svc_impl.h>
 #include <psp_gw_config.h>
@@ -612,7 +613,9 @@ uint32_t PSP_GatewayImpl::next_crypto_id(void)
 	if (peer_addr.find(":") == std::string::npos) {
 		peer_addr += ":" + std::to_string(DEFAULT_HTTP_PORT_NUM);
 	}
-	auto channel = grpc::CreateChannel(peer_addr, grpc::InsecureChannelCredentials());
+	grpc::ChannelArguments args;
+	args.SetMaxReceiveMessageSize(10 * 1024 * 1024); // 10 MB
+	auto channel = grpc::CreateCustomChannel(peer_addr, grpc::InsecureChannelCredentials(), args);
 	stubs_iter = stubs.emplace(peer_ip, psp_gateway::PSP_Gateway::NewStub(channel)).first;
 
 	DOCA_LOG_INFO("Created gRPC stub for peer %s", peer_addr.c_str());

@@ -38,7 +38,7 @@
 struct doca_flow_port *df_port;
 bool force_quit;
 
-DOCA_LOG_REGISTER(GPU_DMABUF : SAMPLE);
+DOCA_LOG_REGISTER(SIMPLE_RECEIVE : SAMPLE);
 
 /*
  * Signal handler to quit application gracefully
@@ -103,7 +103,7 @@ static doca_error_t init_doca_flow(void)
 		return result;
 	}
 
-	result = doca_flow_cfg_set_mode_args(queue_flow_cfg, "vnf,hws,isolated,use_doca_eth");
+	result = doca_flow_cfg_set_mode_args(queue_flow_cfg, "vnf,isolated");
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to set doca_flow_cfg mode_args: %s", doca_error_get_descr(result));
 		doca_flow_cfg_destroy(queue_flow_cfg);
@@ -143,6 +143,13 @@ static doca_error_t start_doca_flow(struct doca_dev *dev)
 	result = doca_flow_port_cfg_create(&port_cfg);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create doca_flow_port_cfg: %s", doca_error_get_descr(result));
+		return result;
+	}
+
+	result = doca_flow_port_cfg_set_port_id(port_cfg, 0);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to set doca_flow_port_cfg port ID: %s", doca_error_get_descr(result));
+		doca_flow_port_cfg_destroy(port_cfg);
 		return result;
 	}
 
@@ -384,6 +391,14 @@ static doca_error_t destroy_rxq(struct rxq_queue *rxq)
 		doca_flow_pipe_destroy(rxq->rxq_pipe);
 	}
 
+	if (df_port != NULL) {
+		result = doca_flow_port_stop(df_port);
+		if (result != DOCA_SUCCESS) {
+			DOCA_LOG_ERR("Failed to stop DOCA flow port, err: %s", doca_error_get_name(result));
+			return DOCA_ERROR_BAD_STATE;
+		}
+	}
+
 	if (rxq->eth_rxq_ctx != NULL) {
 		result = doca_ctx_stop(rxq->eth_rxq_ctx);
 		if (result != DOCA_SUCCESS) {
@@ -408,16 +423,6 @@ static doca_error_t destroy_rxq(struct rxq_queue *rxq)
 		}
 	}
 
-	if (df_port != NULL) {
-		result = doca_flow_port_stop(df_port);
-		if (result != DOCA_SUCCESS) {
-			DOCA_LOG_ERR("Failed to stop DOCA flow port, err: %s", doca_error_get_name(result));
-			return DOCA_ERROR_BAD_STATE;
-		}
-
-		doca_flow_destroy();
-	}
-
 	if (rxq->pkt_buff_mmap != NULL) {
 		result = doca_mmap_destroy(rxq->pkt_buff_mmap);
 		if (result != DOCA_SUCCESS) {
@@ -431,6 +436,9 @@ static doca_error_t destroy_rxq(struct rxq_queue *rxq)
 		DOCA_LOG_ERR("Failed to destroy Eth dev: %s", doca_error_get_descr(result));
 		return DOCA_ERROR_BAD_STATE;
 	}
+
+	if (df_port != NULL)
+		doca_flow_destroy();
 
 	return DOCA_SUCCESS;
 }
@@ -476,6 +484,8 @@ static doca_error_t create_rxq(struct rxq_queue *rxq, struct doca_gpu *gpu_dev, 
 						       0,
 						       MAX_PKT_SIZE,
 						       MAX_PKT_NUM,
+						       0,
+						       0,
 						       0,
 						       &cyclic_buffer_size);
 	if (result != DOCA_SUCCESS) {
